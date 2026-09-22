@@ -290,8 +290,10 @@ var stopRelevant = map[string]bool{
 	engine.WDataStale: true, engine.WHumanCheck: true,
 }
 
-func warningLines(r engine.Result) []string {
-	var out []string
+// VisibleWarnings — предупреждения, которые показываются в блоке «⚠️ Внимание».
+// Одно правило для чата, мини-приложения и .txt.
+func VisibleWarnings(r engine.Result) []engine.Warning {
+	var out []engine.Warning
 	for _, w := range r.Warnings {
 		if w.Code == engine.WWeightSkipped && w.Level == engine.Warn {
 			continue // уже показано в блоке пошлины
@@ -299,6 +301,14 @@ func warningLines(r engine.Result) []string {
 		if r.Stop != nil && !stopRelevant[w.Code] {
 			continue // экспорт запрещён — требования к документам и логистике сейчас не важны
 		}
+		out = append(out, w)
+	}
+	return out
+}
+
+func warningLines(r engine.Result) []string {
+	var out []string
+	for _, w := range VisibleWarnings(r) {
 		out = append(out, w.Level.Icon()+" "+w.Text)
 	}
 	return out

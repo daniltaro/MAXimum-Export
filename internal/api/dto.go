@@ -127,10 +127,10 @@ type CalcDTO struct {
 	Stop      *WarningDTO  `json:"stop"`      // экспорт запрещён: показать вместо требований
 	Blocks    []BlockDTO   `json:"blocks"`    // блоки отчёта в фиксированном порядке, готовые строки
 	Documents []DocDTO     `json:"documents"` // чек-лист документов со статусами
-	Duty      DutyDTO      `json:"duty"`
+	Duty      *DutyDTO     `json:"duty"`      // null — экспорт запрещён (stop), пошлину не показываем
 	Rates     RatesDTO     `json:"rates"`
 	Warnings  []WarningDTO `json:"warnings"`
-	Roles     []RoleDTO    `json:"roles"`
+	Roles     []RoleDTO    `json:"roles"`  // пусто при запрете экспорта
 	Market    string       `json:"market"` // барьеры входа (для директора ВЭД)
 
 	Disclaimer string   `json:"disclaimer"`
@@ -229,8 +229,9 @@ type ErrorDTO struct {
 
 // ErrorBody — описание ошибки; message можно показывать пользователю как есть.
 type ErrorBody struct {
-	Code    string `json:"code"` // invalid_input | not_found | too_large | bad_json | internal
+	Code    string `json:"code"` // invalid_input | personal_data | not_found | too_large | bad_json | rate_limited | internal
 	Field   string `json:"field,omitempty"`
+	Kind    string `json:"kind,omitempty"` // для personal_data: что найдено («номер телефона», «e-mail»...)
 	Message string `json:"message"`
 }
 
@@ -266,11 +267,17 @@ func calcDTO(c *store.Calc) CalcDTO {
 	for _, b := range rep.Blocks {
 		dto.Blocks = append(dto.Blocks, BlockDTO{ID: b.ID, Title: b.Title, Lines: b.Lines})
 	}
+	// Предупреждения — по тому же правилу, что и в чате (report.VisibleWarnings).
+	dto.Warnings = []WarningDTO{}
+	for _, w := range report.VisibleWarnings(r) {
+		dto.Warnings = append(dto.Warnings, warningDTO(w))
+	}
+	dto.Documents, dto.Roles = []DocDTO{}, []RoleDTO{}
+	if r.Stop != nil {
+		return dto // экспорт запрещён: вместо требований — только stop (ТЗ §15, экран 5)
+	}
 	for _, d := range r.Req.Documents {
 		dto.Documents = append(dto.Documents, DocDTO{Name: d.Name, Status: string(d.Status), Who: d.Who, Term: d.Term, Note: d.Note})
-	}
-	for _, w := range r.Warnings {
-		dto.Warnings = append(dto.Warnings, warningDTO(w))
 	}
 	roles := r.Country.Roles
 	dto.Roles = []RoleDTO{
@@ -280,7 +287,8 @@ func calcDTO(c *store.Calc) CalcDTO {
 		{"accountant", "Главный бухгалтер ВЭД", roles.Accountant},
 		{"export_control", "Экспортный контроль", roles.ExportControl},
 	}
-	dto.Duty = dutyDTO(r)
+	duty := dutyDTO(r)
+	dto.Duty = &duty
 	return dto
 }
 

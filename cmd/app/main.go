@@ -41,7 +41,8 @@ func main() {
 	svc := service.New(data.MustLoad(), rates)
 	srv := &http.Server{
 		Addr:              net.JoinHostPort(cfg.Host, cfg.Port),
-		Handler:           api.New(svc, cfg.AllowedOrigins).Handler(),
+		Handler:           api.New(svc, api.Options{AllowedOrigins: cfg.AllowedOrigins, TrustProxy: cfg.TrustProxy}).Handler(),
+		MaxHeaderBytes:    16 << 10, // 16 КБ: длинные адреса не нужны ни одному запросу API
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,

@@ -57,6 +57,17 @@ func TestTopics(t *testing.T) {
 	if a := Ask(honey, "Какие сертификаты нужны?"); !strings.Contains(a.Text, "Ветеринарный") {
 		t.Errorf("мёд в Армению — в ответе о сертификатах нет ветсертификата: %s", a.Text)
 	}
+	// Ревью: «текст» не должен считаться опечаткой в «тест», «стоит ли» — не про пошлину.
+	if a := Ask(sugar, "какой текст на этикетке"); a.TopicID != "labeling" {
+		t.Errorf("«какой текст на этикетке»: тема %q", a.TopicID)
+	}
+	// При запрете экспорта любой ответ начинается с запрета.
+	e := engine.New(data.MustLoad())
+	rice := e.Cat.ProductsWithPrefix("100610")[0]
+	banned := build(t, engine.Input{Country: "cn", Code: rice.Code, Qty: 20, WeightKg: 20000})
+	if a := Ask(banned, "Сколько ждать регистрацию?"); !strings.Contains(a.Text, "🚫") {
+		t.Errorf("при запрете экспорта ответ должен начинаться с запрета: %s", a.Text)
+	}
 	if a := Ask(sugar, "абракадабра"); a.Found || len(a.Suggestions) == 0 {
 		t.Error("нераспознанный вопрос: нужны подсказки")
 	}

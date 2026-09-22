@@ -81,7 +81,7 @@ paths:
       tags: [Справочники]
       summary: Поиск кода ТН ВЭД по названию товара (экран 3; опечатки допускаются)
       parameters:
-        - { name: q, in: query, required: true, schema: { type: string }, example: сахар-песок }
+        - { name: q, in: query, required: true, schema: { type: string, maxLength: 200 }, example: сахар-песок }
       responses:
         "200":
           description: До 5 кодов; too_many=true — попросить уточнить запрос
@@ -96,7 +96,8 @@ paths:
       summary: Проверка кода, введённого вручную
       description: |
         status: ok — код найден; replaced — код устарел, расчёт по новому (product) коду;
-        prefix — введены 4–9 цифр, см. candidates; not_found; non_food; bad_format.
+        prefix — введены 4–9 цифр, см. candidates; not_yet_valid — код начнёт действовать позже;
+        not_found; non_food; bad_format.
       parameters:
         - { name: code, in: path, required: true, schema: { type: string }, example: "1701121000" }
       responses:
@@ -105,6 +106,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/CodeCheck" }
+        "400": { $ref: "#/components/responses/InvalidInput" }
 
   /api/v1/checks/weight:
     post:
@@ -123,6 +125,8 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/WeightCheck" }
         "400": { $ref: "#/components/responses/InvalidInput" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/calculations:
     post:
@@ -153,7 +157,9 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Calculation" }
         "400": { $ref: "#/components/responses/InvalidInput" }
-        "413": { description: Слишком большой запрос }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
 
   /api/v1/calculations/{id}:
     get:
@@ -187,7 +193,7 @@ paths:
         content:
           application/json:
             schema: { type: object, required: [question], properties: { question: { type: string, maxLength: 500 } } }
-            example: { question: Сколько ждать регистрацию? }
+            example: { question: "Сколько ждать регистрацию?" }
       responses:
         "200":
           description: Ответ; found=false — тема не распознана, показать suggestions
@@ -196,6 +202,8 @@ paths:
               schema: { $ref: "#/components/schemas/Answer" }
         "400": { $ref: "#/components/responses/InvalidInput" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/openapi.yaml:
     get:
@@ -213,9 +221,28 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
-          example: { error: { code: invalid_input, field: quantity, message: "⚠️ Количество должно быть больше нуля." } }
+          examples:
+            invalid:
+              value: { error: { code: invalid_input, field: quantity, message: "⚠️ Количество должно быть больше нуля." } }
+            personal_data:
+              value: { error: { code: personal_data, field: product_query, kind: номер телефона, message: "🔒 Похоже, в сообщении есть номер телефона…" } }
     NotFound:
       description: Расчёт не найден (хранится 24 часа, после перезапуска теряется)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    TooLarge:
+      description: Тело запроса больше 64 КБ
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RateLimited:
+      description: Больше 60 POST-запросов в минуту с одного адреса; повторить через Retry-After секунд
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Internal:
+      description: Внутренняя ошибка сервера; message — готовый текст для пользователя
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
@@ -227,8 +254,9 @@ components:
         error:
           type: object
           properties:
-            code: { type: string, enum: [invalid_input, not_found, too_large, bad_json, internal] }
-            field: { type: string }
+            code: { type: string, enum: [invalid_input, personal_data, not_found, too_large, bad_json, rate_limited, internal] }
+            field: { type: string, description: "Поле с ошибкой: country, code, product_query, unit_word, quantity, weight_kg, net_kg, ship_date, q, question" }
+            kind: { type: string, description: "Для personal_data: что найдено (номер телефона, e-mail, ИНН/ОГРН/КПП…)" }
             message: { type: string }
 
     Article:
@@ -276,7 +304,7 @@ components:
     CodeCheck:
       type: object
       properties:
-        status: { type: string, enum: [ok, bad_format, not_found, non_food, replaced, prefix] }
+        status: { type: string, enum: [ok, bad_format, not_found, non_food, replaced, prefix, not_yet_valid] }
         message: { type: string }
         product: { $ref: "#/components/schemas/Product" }
         replaced_from: { $ref: "#/components/schemas/Product" }
@@ -307,12 +335,12 @@ components:
       properties:
         country: { type: string, enum: [cn, am, kz] }
         code: { type: string, description: "10 цифр; пробелы допустимы" }
-        product_query: { type: string, description: "Что пользователь искал — для проверки соответствия кода типу продукции" }
+        product_query: { type: string, maxLength: 200, description: "Что пользователь искал — для проверки соответствия кода типу продукции" }
         manual_code: { type: boolean }
-        quantity: { type: integer, minimum: 1 }
-        unit_word: { type: string, example: мешков }
-        weight_kg: { type: number, nullable: true, description: "Брутто, кг; не передавать — «Пропустить вес»" }
-        net_kg: { type: number, nullable: true }
+        quantity: { type: integer, minimum: 1, maximum: 1000000000 }
+        unit_word: { type: string, maxLength: 200, example: мешков }
+        weight_kg: { type: number, nullable: true, maximum: 1000000000, description: "Брутто, кг (до 1 млрд); не передавать — «Пропустить вес»" }
+        net_kg: { type: number, nullable: true, maximum: 1000000000, description: "Нетто, кг; только вместе с weight_kg" }
         ship_date: { type: string, format: date, example: "2026-11-15" }
         unit_weight_confirmed: { type: boolean }
         previous_id: { type: string, description: "Прошлый расчёт — для предупреждения о скачке курса" }
@@ -353,7 +381,10 @@ components:
             net_kg: { type: number, nullable: true }
             ship_date: { type: string, format: date }
             replaced_from: { type: string }
-        stop: { allOf: [{ $ref: "#/components/schemas/Warning" }], nullable: true, description: "Экспорт запрещён — показать вместо требований" }
+        stop:
+          allOf: [{ $ref: "#/components/schemas/Warning" }]
+          nullable: true
+          description: "Экспорт запрещён — показать вместо требований. Тогда duty = null, documents и roles пустые, в blocks нет блоков требований"
         blocks:
           type: array
           description: "Блоки в фиксированном порядке: params, stop, packaging, product, labeling, documents, lab, duty, roles, warnings"
@@ -372,14 +403,16 @@ components:
               note: { type: string }
         duty:
           type: object
+          nullable: true
+          description: "null, если экспорт запрещён (stop)"
           properties:
             regime: { type: string, enum: [eaeu, third] }
             type: { type: string, enum: [none, advalorem, specific, combined] }
             type_name: { type: string }
             rate_text: { type: string }
             basis: { type: string }
-            valid_from: { type: string }
-            valid_to: { type: string }
+            valid_from: { type: string, format: date, description: "ГГГГ-ММ-ДД" }
+            valid_to: { type: string, format: date, description: "ГГГГ-ММ-ДД" }
             note: { type: string }
             training: { type: boolean }
             lines: { type: array, items: { type: object, properties: { label: { type: string }, formula: { type: string }, rub: { type: number } } } }
@@ -413,12 +446,15 @@ components:
               text: { type: string }
         market: { type: string }
         disclaimer: { type: string }
-        chat_parts: { type: array, items: { type: string } }
-        copy_text: { type: array, items: { type: string } }
+        chat_parts: { type: array, items: { type: string }, description: "Части не длиннее 3500 символов, подписаны «(1/2)», «(2/2)»" }
+        copy_text: { type: array, items: { type: string }, description: "Части не длиннее 4000 символов (лимит сообщения MAX)" }
 
     Answer:
       type: object
       properties:
+        topic_id:
+          type: string
+          enum: ["", documents, duty, registration, lab, labeling, packaging, vat, rate, restrictions, logistics, terms, product]
         topic: { type: string, example: Регистрация производителя }
         text: { type: string }
         found: { type: boolean }

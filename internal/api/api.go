@@ -6,6 +6,7 @@
 package api
 
 import (
+	"bytes"
 	_ "embed"
 	"encoding/json"
 	"errors"
@@ -30,21 +31,36 @@ const MaxBodyBytes = 64 << 10
 // MaxQuestionLen — максимальная длина вопроса по отчёту.
 const MaxQuestionLen = 500
 
+// MaxFieldLen — максимальная длина текстовых полей (поиск, название товара, единица, код).
+const MaxFieldLen = 200
+
 // Server — обработчик HTTP-запросов API.
 type Server struct {
 	svc            *service.Service
 	allowedOrigins []string // для CORS; "*" — любой источник
+	limiter        *rateLimiter
+	trustProxy     bool // брать адрес клиента из X-Forwarded-For (когда API стоит за Caddy/nginx)
 }
 
-// New создаёт API. allowedOrigins — список адресов фронтенда через запятую или "*".
-func New(svc *service.Service, allowedOrigins string) *Server {
+// Options — настройки API.
+type Options struct {
+	AllowedOrigins string // адреса фронтенда через запятую или "*"
+	TrustProxy     bool   // сервер работает за обратным прокси
+	RatePerMinute  int    // сколько POST-запросов в минуту разрешено одному адресу (0 — 60)
+}
+
+// New создаёт API.
+func New(svc *service.Service, opt Options) *Server {
 	var origins []string
-	for _, o := range strings.Split(allowedOrigins, ",") {
+	for _, o := range strings.Split(opt.AllowedOrigins, ",") {
 		if o = strings.TrimSpace(o); o != "" {
 			origins = append(origins, o)
 		}
 	}
-	return &Server{svc: svc, allowedOrigins: origins}
+	if opt.RatePerMinute <= 0 {
+		opt.RatePerMinute = 60
+	}
+	return &Server{svc: svc, allowedOrigins: origins, trustProxy: opt.TrustProxy, limiter: newRateLimiter(opt.RatePerMinute, time.Minute)}
 }
 
 // Handler возвращает http.Handler со всеми маршрутами /api/v1/... и /healthz.
@@ -106,6 +122,9 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_input", "q", texts.T("product.prompt"))
 		return
 	}
+	if !checkText(w, "q", q, MaxFieldLen) {
+		return
+	}
 	res := s.svc.Search(q)
 	out := SearchDTO{Query: q, Total: res.Total, TooMany: res.TooMany, Items: []ProductDTO{}}
 	for _, p := range res.Items {
@@ -116,6 +135,9 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) checkCode(w http.ResponseWriter, r *http.Request) {
 	input := r.PathValue("code")
+	if !checkText(w, "code", input, MaxFieldLen) {
+		return
+	}
 	c := s.svc.CheckCode(input)
 	out := CodeCheckDTO{}
 	code := engine.FormatCode(c.Digits)
@@ -130,6 +152,8 @@ func (s *Server) checkCode(w http.ResponseWriter, r *http.Request) {
 			"date", isoToRu(c.Old.ReplacedBy.Since))
 	case engine.CodeNonFood:
 		out.Status, out.Message = "non_food", texts.T("code.non_food", "code", code, "category", c.Product.Category)
+	case engine.CodeNotYetValid:
+		out.Status, out.Message = "not_yet_valid", service.NotYetValidMessage(c)
 	case engine.CodePrefix:
 		out.Status = "prefix"
 		for _, p := range c.Candidates {
@@ -138,7 +162,7 @@ func (s *Server) checkCode(w http.ResponseWriter, r *http.Request) {
 	case engine.CodeNotFound:
 		out.Status, out.Message = "not_found", texts.T("code.not_found", "code", code)
 	default:
-		out.Status, out.Message = "bad_format", texts.T("code.bad_format", "input", input)
+		out.Status, out.Message = "bad_format", texts.T("code.bad_format", "input", engine.ClipInput(input, service.MaxInputEcho))
 	}
 	if c.Product != nil {
 		p := productDTO(c.Product)
@@ -172,25 +196,37 @@ func (s *Server) calculate(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
+	for _, f := range []struct{ name, value string }{
+		{"country", req.Country}, {"code", req.Code}, {"product_query", req.ProductQuery},
+		{"unit_word", req.UnitWord}, {"previous_id", req.PreviousID},
+	} {
+		if !checkText(w, f.name, f.value, MaxFieldLen) {
+			return
+		}
+	}
 	creq := service.CalcRequest{
-		Country: strings.ToLower(strings.TrimSpace(req.Country)), Code: req.Code,
+		Country: req.Country, Code: req.Code,
 		ProductQuery: req.ProductQuery, ManualCode: req.ManualCode, Quantity: req.Quantity, UnitWord: req.UnitWord,
 		UnitWeightConfirmed: req.UnitWeightConfirmed, PreviousID: req.PreviousID,
 	}
 	if req.WeightKg != nil {
-		if *req.WeightKg <= 0 {
-			writeError(w, http.StatusBadRequest, "invalid_input", "weight_kg", engine.ErrWeightNonPos.Error())
+		if err := engine.CheckWeight(*req.WeightKg); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_input", "weight_kg", err.Error())
 			return
 		}
 		creq.WeightKg = *req.WeightKg
 	}
 	if req.NetKg != nil {
+		if err := engine.CheckWeight(*req.NetKg); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_input", "net_kg", err.Error())
+			return
+		}
 		creq.NetKg = *req.NetKg
 	}
 	if req.ShipDate != "" {
 		d, ok := engine.ParseISODate(req.ShipDate)
 		if !ok {
-			writeError(w, http.StatusBadRequest, "invalid_input", "ship_date", texts.T("review.date_error"))
+			writeError(w, http.StatusBadRequest, "invalid_input", "ship_date", texts.T("error.bad_iso_date"))
 			return
 		}
 		creq.ShipDate = d
@@ -242,8 +278,8 @@ func (s *Server) ask(w http.ResponseWriter, r *http.Request) {
 	case len([]rune(q)) > MaxQuestionLen:
 		writeError(w, http.StatusBadRequest, "invalid_input", "question", texts.T("ask.too_long", "limit", engine.FormatInt(MaxQuestionLen)))
 		return
-	case engine.DetectPII(q) != "":
-		writeError(w, http.StatusBadRequest, "invalid_input", "question", texts.T("error.pii", "kind", engine.DetectPII(q)))
+	}
+	if !checkText(w, "question", q, MaxQuestionLen) {
 		return
 	}
 	ans, err := s.svc.Ask(r.PathValue("id"), q)
@@ -258,16 +294,40 @@ func (s *Server) ask(w http.ResponseWriter, r *http.Request) {
 // Вспомогательные функции
 // ---------------------------------------------------------------------------
 
+// writeJSON сначала целиком кодирует ответ и только потом отправляет заголовки:
+// если закодировать не удалось, клиент получит 500 с понятной ошибкой, а не пустое тело.
 func writeJSON(w http.ResponseWriter, status int, v any) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		log.Printf("api: не удалось закодировать ответ: %v", err)
+		buf.Reset()
+		status = http.StatusInternalServerError
+		_ = json.NewEncoder(&buf).Encode(ErrorDTO{Error: ErrorBody{Code: "internal", Message: texts.T("error.generic")}})
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
-	_ = enc.Encode(v)
+	_, _ = w.Write(buf.Bytes())
 }
 
 func writeError(w http.ResponseWriter, status int, code, field, msg string) {
 	writeJSON(w, status, ErrorDTO{Error: ErrorBody{Code: code, Field: field, Message: msg}})
+}
+
+// checkText проверяет текстовое поле: длина и отсутствие персональных данных (ТЗ §17).
+// При ошибке сам отвечает клиенту и возвращает false.
+func checkText(w http.ResponseWriter, field, value string, limit int) bool {
+	if len([]rune(value)) > limit {
+		writeError(w, http.StatusBadRequest, "invalid_input", field, texts.T("error.too_long", "limit", engine.FormatInt(int64(limit))))
+		return false
+	}
+	if kind := engine.DetectPII(value); kind != "" {
+		writeJSON(w, http.StatusBadRequest, ErrorDTO{Error: ErrorBody{Code: "personal_data", Field: field, Kind: kind,
+			Message: texts.T("error.pii", "kind", kind)}})
+		return false
+	}
+	return true
 }
 
 func writeServiceError(w http.ResponseWriter, err error) {
@@ -291,7 +351,7 @@ func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	if err := dec.Decode(v); err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
-			writeError(w, http.StatusRequestEntityTooLarge, "too_large", "", texts.T("error.too_long", "limit", engine.FormatInt(MaxBodyBytes)))
+			writeError(w, http.StatusRequestEntityTooLarge, "too_large", "", texts.T("error.body_too_large"))
 		} else {
 			writeError(w, http.StatusBadRequest, "bad_json", "", "Некорректный JSON: "+err.Error())
 		}
@@ -324,14 +384,25 @@ func (s *Server) withMiddleware(next http.Handler) http.Handler {
 			sw.WriteHeader(http.StatusNoContent)
 			return
 		}
+		if r.Method == http.MethodPost && !s.limiter.Allow(s.clientIP(r), start) {
+			sw.Header().Set("Retry-After", "60")
+			writeError(sw, http.StatusTooManyRequests, "rate_limited", "", texts.T("error.rate_limit"))
+			return
+		}
 
 		defer func() {
 			if rec := recover(); rec != nil {
-				log.Printf("api: паника при %s %s: %v", r.Method, r.URL.Path, rec)
+				log.Printf("api: паника при %s %s: %v", r.Method, r.Pattern, rec)
 				writeError(sw, http.StatusInternalServerError, "internal", "", texts.T("error.generic"))
 			}
+			// В журнал пишем шаблон маршрута («GET /api/v1/products/{code}»), а не сам адрес:
+			// в адресе может оказаться то, что ввёл пользователь.
 			if r.URL.Path != "/healthz" {
-				log.Printf("%s %s → %d за %v", r.Method, r.URL.Path, sw.status, time.Since(start).Round(time.Millisecond))
+				pattern := r.Pattern
+				if pattern == "" {
+					pattern = r.Method + " (неизвестный адрес)"
+				}
+				log.Printf("%s → %d за %v", pattern, sw.status, time.Since(start).Round(time.Millisecond))
 			}
 		}()
 		next.ServeHTTP(sw, r)

@@ -20,7 +20,7 @@ func newServer(t *testing.T) http.Handler {
 	t.Helper()
 	svc := service.New(data.MustLoad(), engine.TrainingSource{})
 	svc.Now = func() time.Time { return now }
-	return New(svc, "*").Handler()
+	return New(svc, Options{AllowedOrigins: "*", RatePerMinute: 1000}).Handler()
 }
 
 func do(t *testing.T, h http.Handler, method, path string, body any) (*httptest.ResponseRecorder, map[string]any) {
@@ -219,5 +219,78 @@ func TestDemoFlags(t *testing.T) {
 	}
 	if !calc.Rates.Failed || !codes[engine.WRateFailed] || !codes[engine.WRateJump] {
 		t.Errorf("демо-флаги: failed=%v, предупреждения %v", calc.Rates.Failed, codes)
+	}
+}
+
+// Регрессионные тесты по итогам ревью этапа 1.5.
+func TestReviewRegressions(t *testing.T) {
+	h := newServer(t)
+
+	// Очень длинный поисковый запрос отклоняется сразу (раньше — 8 с работы процессора).
+	start := time.Now()
+	if rec, _ := do(t, h, "GET", "/api/v1/products/search?q="+strings.Repeat("z", 5000), nil); rec.Code != 400 {
+		t.Errorf("длинный запрос поиска: %d", rec.Code)
+	}
+	if d := time.Since(start); d > 100*time.Millisecond {
+		t.Errorf("отклонение длинного запроса заняло %v", d)
+	}
+
+	// Персональные данные в полях расчёта отклоняются с указанием поля и вида данных.
+	w := 100.0
+	rec, out := do(t, h, "POST", "/api/v1/calculations", CalcRequestDTO{Country: "cn", Code: "1701121000", Quantity: 1, WeightKg: &w,
+		ProductQuery: "сахар, звоните +7 (999) 123-45-67"})
+	errObj, _ := out["error"].(map[string]any)
+	if rec.Code != 400 || errObj["code"] != "personal_data" || errObj["field"] != "product_query" || errObj["kind"] == "" {
+		t.Errorf("ПДн в product_query: %d %v", rec.Code, out)
+	}
+
+	// Огромный вес — ошибка 400, а не «бесконечность» и пустой ответ.
+	huge := 1e306
+	if rec, _ := do(t, h, "POST", "/api/v1/calculations", CalcRequestDTO{Country: "cn", Code: "1205109000", Quantity: 1, WeightKg: &huge}); rec.Code != 400 {
+		t.Errorf("вес 1e306: %d", rec.Code)
+	}
+	if rec, _ := do(t, h, "POST", "/api/v1/checks/weight", WeightCheckRequest{Code: "1101000000", Quantity: 1, WeightKg: 1e306}); rec.Code != 400 {
+		t.Errorf("проверка веса 1e306: %d", rec.Code)
+	}
+
+	// Нетто без брутто — ошибка в поле weight_kg.
+	net := 50.0
+	rec, out = do(t, h, "POST", "/api/v1/calculations", CalcRequestDTO{Country: "cn", Code: "1701121000", Quantity: 1, NetKg: &net})
+	errObj, _ = out["error"].(map[string]any)
+	if rec.Code != 400 || errObj["field"] != "weight_kg" {
+		t.Errorf("нетто без брутто: %d %v", rec.Code, out)
+	}
+
+	// Код, который начнёт действовать только в будущем.
+	if _, out := do(t, h, "GET", "/api/v1/products/2101110019", nil); out["status"] != "not_yet_valid" {
+		t.Errorf("будущий код: %v", out["status"])
+	}
+
+	// Запрет экспорта: в JSON нет пошлины, документов и ролей — как в чате.
+	svc := service.New(data.MustLoad(), engine.TrainingSource{})
+	rice := svc.Engine.Cat.ProductsWithPrefix("100610")[0]
+	w = 20000
+	rec, out = do(t, h, "POST", "/api/v1/calculations", CalcRequestDTO{Country: "cn", Code: rice.Code, Quantity: 20, WeightKg: &w})
+	if rec.Code != 201 || out["stop"] == nil || out["duty"] != nil || len(out["documents"].([]any)) != 0 || len(out["roles"].([]any)) != 0 {
+		t.Errorf("запрет экспорта: stop=%v duty=%v", out["stop"], out["duty"])
+	}
+}
+
+func TestRateLimit(t *testing.T) {
+	svc := service.New(data.MustLoad(), engine.TrainingSource{})
+	svc.Now = func() time.Time { return now }
+	h := New(svc, Options{AllowedOrigins: "*", RatePerMinute: 2}).Handler()
+	w := 100.0
+	body := CalcRequestDTO{Country: "cn", Code: "1701121000", Quantity: 2, WeightKg: &w}
+	for i := 0; i < 2; i++ {
+		if rec, _ := do(t, h, "POST", "/api/v1/calculations", body); rec.Code != 201 {
+			t.Fatalf("запрос %d: %d", i+1, rec.Code)
+		}
+	}
+	if rec, _ := do(t, h, "POST", "/api/v1/calculations", body); rec.Code != 429 {
+		t.Errorf("третий запрос за минуту: %d, ожидалось 429", rec.Code)
+	}
+	if rec, _ := do(t, h, "GET", "/api/v1/countries", nil); rec.Code != 200 {
+		t.Errorf("GET-запросы не ограничиваются: %d", rec.Code)
 	}
 }

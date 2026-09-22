@@ -37,12 +37,25 @@ func Normalize(s string) string {
 // stopWords — служебные слова, которые не участвуют в поиске.
 var stopWords = map[string]bool{"и": true, "с": true, "в": true, "из": true, "для": true, "по": true, "на": true, "без": true, "или": true}
 
-// Words разбивает текст на значимые слова для поиска.
+// Ограничения на поисковый запрос: длинный текст не должен замедлять бота (ТЗ §21: ответ ≤ 5 с).
+const (
+	MaxQueryWords   = 10 // учитываются первые 10 значимых слов
+	MaxQueryWordLen = 40 // слова длиннее обрезаются
+)
+
+// Words разбивает текст на значимые слова для поиска (не больше MaxQueryWords слов).
 func Words(s string) []string {
 	var out []string
 	for _, w := range strings.Fields(Normalize(s)) {
-		if !stopWords[w] {
-			out = append(out, w)
+		if stopWords[w] {
+			continue
+		}
+		if r := []rune(w); len(r) > MaxQueryWordLen {
+			w = string(r[:MaxQueryWordLen])
+		}
+		out = append(out, w)
+		if len(out) == MaxQueryWords {
+			break
 		}
 	}
 	return out
@@ -74,21 +87,23 @@ func wordMatch(q, w string) int {
 	}
 
 	// Опечатки: 1 для слов от 4 букв, 2 — для длинных слов от 8 букв.
+	// Если слова различаются по длине сильнее, чем допустимо опечаток, считать правки
+	// бессмысленно — сразу «не совпало» (это же защищает от очень длинных слов).
 	if short >= 4 {
 		allowed := 1
 		if short >= 8 {
 			allowed = 2
 		}
-		if damerauLevenshtein(q, w) <= allowed {
+		if long-short <= allowed && damerauLevenshtein(q, w) <= allowed {
 			return matchTypo
 		}
 	}
 	return matchNone
 }
 
-// WordsMatch — совпадают ли два слова с учётом окончаний и опечаток
-// (используется и в ответах на вопросы: «сертификаты» ≈ «сертификат»).
-func WordsMatch(a, b string) bool { return wordMatch(a, b) != matchNone }
+// WordsMatch — насколько совпадают два слова: 0 — нет, 1 — опечатка, 2 — другое окончание,
+// 3 — точно (используется и в ответах на вопросы: «сертификаты» ≈ «сертификат»).
+func WordsMatch(a, b string) int { return wordMatch(a, b) }
 
 func commonPrefix(a, b string) int {
 	ra, rb := []rune(a), []rune(b)

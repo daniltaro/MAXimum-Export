@@ -33,6 +33,19 @@ func New(cat *data.Catalog) *Engine {
 	return e
 }
 
+// currentFor — действующий код, который будет заменён кодом p.
+func (e *Engine) currentFor(p *data.Product) *data.Product {
+	for i := range e.Cat.Products {
+		if r := e.Cat.Products[i].ReplacedBy; r != nil && r.Code == p.Code {
+			return &e.Cat.Products[i]
+		}
+	}
+	return nil
+}
+
+// ValidFrom — с какой даты действует код (нулевое время — действует уже сейчас).
+func (e *Engine) ValidFrom(code string) time.Time { return e.validFrom[code] }
+
 // notYetValid — код ещё не вступил в силу на дату day.
 func (e *Engine) notYetValid(p *data.Product, day time.Time) bool {
 	since, ok := e.validFrom[p.Code]
@@ -86,12 +99,13 @@ func FormatCode(code string) string {
 type CodeStatus int
 
 const (
-	CodeOK        CodeStatus = iota // код найден, пищевой
-	CodeBadFormat                   // не 4–10 цифр
-	CodeNotFound                    // нет в справочнике
-	CodeNonFood                     // найден, но это не пищевая продукция
-	CodeReplaced                    // устарел, заменён новым (расчёт — по новому коду)
-	CodePrefix                      // введено 4–8 цифр: показать подходящие 10-значные коды
+	CodeOK          CodeStatus = iota // код найден, пищевой
+	CodeBadFormat                     // не 4–10 цифр
+	CodeNotFound                      // нет в справочнике
+	CodeNonFood                       // найден, но это не пищевая продукция
+	CodeReplaced                      // устарел, заменён новым (расчёт — по новому коду)
+	CodePrefix                        // введено 4–9 цифр: показать подходящие 10-значные коды
+	CodeNotYetValid                   // код начнёт действовать позже (после замены старого кода)
 )
 
 // CodeCheck — подробности проверки кода.
@@ -101,6 +115,8 @@ type CodeCheck struct {
 	Product    *data.Product   // итоговый товар (для CodeReplaced — новый код)
 	Old        *data.Product   // устаревший код (только для CodeReplaced)
 	Candidates []*data.Product // коды с таким началом (только для CodePrefix)
+	Current    *data.Product   // действующий сейчас код (только для CodeNotYetValid)
+	ValidFrom  time.Time       // с какой даты начнёт действовать код (только для CodeNotYetValid)
 }
 
 // CheckCode проверяет код, введённый пользователем (ТЗ §12: «проверяет код по справочнику,
@@ -118,6 +134,8 @@ func (e *Engine) CheckCode(input string, today time.Time) CodeCheck {
 			res.Status, res.Product = CodeNonFood, p
 		case e.isReplacedOn(p, today):
 			res.Status, res.Old, res.Product = CodeReplaced, p, e.Cat.Product(p.ReplacedBy.Code)
+		case e.notYetValid(p, today):
+			res.Status, res.Product, res.Current, res.ValidFrom = CodeNotYetValid, p, e.currentFor(p), e.validFrom[p.Code]
 		default:
 			res.Status, res.Product = CodeOK, p
 		}

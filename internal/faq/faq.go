@@ -49,7 +49,8 @@ func Help() []Article {
 
 // Answer — ответ на вопрос по отчёту.
 type Answer struct {
-	Topic       string   `json:"topic"`       // тема, которую распознал бот: «Сертификаты и документы»
+	TopicID     string   `json:"topic_id"`    // id темы: documents, duty, registration, lab, labeling, packaging, vat, rate, restrictions, logistics, terms, product
+	Topic       string   `json:"topic"`       // название темы: «Сертификаты и документы»
 	Text        string   `json:"text"`        // ответ (разметка **жирный**)
 	Found       bool     `json:"found"`       // тема распознана
 	Suggestions []string `json:"suggestions"` // примеры вопросов
@@ -67,7 +68,7 @@ type topic struct {
 // Поэтому «Сколько ждать регистрацию?» — это «регистрация», а не «сроки».
 var topics = []topic{
 	{"documents", "Сертификаты и документы", []string{"сертификат", "документ", "разрешение", "фитосанитарный", "ветеринарный", "ветсертификат", "фитосертификат", "происхождение", "справка"}, answerDocuments},
-	{"duty", "Таможенная пошлина", []string{"пошлина", "платеж", "платить", "заплатить", "сбор", "стоимость", "стоит", "деньги", "тариф"}, answerDuty},
+	{"duty", "Таможенная пошлина", []string{"пошлина", "платеж", "платить", "заплатить", "сбор", "стоимость", "деньги", "тариф"}, answerDuty},
 	{"registration", "Регистрация производителя", []string{"регистрация", "зарегистрировать", "реестр", "gacc", "cifer", "цербер"}, answerRegistration},
 	{"lab", "Лабораторные испытания", []string{"лаборатория", "испытание", "анализ", "исследование", "протокол", "тест", "проба"}, answerLab},
 	{"labeling", "Маркировка", []string{"маркировка", "этикетка", "язык", "надпись", "штрихкод"}, answerBlock(report.BLabeling)},
@@ -83,19 +84,26 @@ var topics = []topic{
 // Suggestions — примеры вопросов (ТЗ §22, сценарий 1: вопросы тренера).
 var Suggestions = []string{"Какие сертификаты нужны?", "Сколько пошлина?", "Сколько ждать регистрацию?", "Какие анализы сделать?", "Что указать на этикетке?"}
 
-// Ask отвечает на вопрос по отчёту.
+// Ask отвечает на вопрос по отчёту. Каждое слово вопроса сравнивается с ключевыми словами
+// тем: совпадение (в том числе с другим окончанием — «регистрацию» ≈ «регистрация») весит 2,
+// опечатка — 1. Для коротких ключевых слов (до 5 букв) опечатки не считаются, иначе «текст»
+// совпал бы с «тест».
 func Ask(rep report.Report, question string) Answer {
 	words := engine.Words(question)
 	best, bestScore := -1, 0
 	for i, t := range topics {
 		score := 0
 		for _, w := range words {
+			bestWord := 0
 			for _, k := range t.keywords {
-				if engine.WordsMatch(w, engine.Normalize(k)) {
-					score++
-					break
+				k = engine.Normalize(k)
+				m := min(engine.WordsMatch(w, k), 2) // точное совпадение = другое окончание
+				if m == 1 && len([]rune(k)) <= 5 {
+					m = 0
 				}
+				bestWord = max(bestWord, m)
 			}
+			score += bestWord
 		}
 		if score > bestScore {
 			best, bestScore = i, score
@@ -107,9 +115,14 @@ func Ask(rep report.Report, question string) Answer {
 	t := topics[best]
 	r := rep.Result
 	head := fmt.Sprintf("**%s** — %s → %s %s", t.title, r.Product.Name, r.Country.Flag, r.Country.Name)
+	body := t.answer(rep)
+	if r.Stop != nil && !strings.HasPrefix(body, "🚫") {
+		body = "🚫 " + r.Stop.Text + "\n" + body // при запрете экспорта главное — сам запрет
+	}
 	return Answer{
+		TopicID:     t.id,
 		Topic:       t.title,
-		Text:        head + "\n" + t.answer(rep) + "\n\n" + texts.T("ask.footer"),
+		Text:        head + "\n" + body + "\n\n" + texts.T("ask.footer"),
 		Found:       true,
 		Suggestions: Suggestions,
 	}

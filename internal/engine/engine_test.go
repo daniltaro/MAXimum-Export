@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -579,5 +580,33 @@ func TestTwentyCalculationsFast(t *testing.T) {
 	}
 	if d := time.Since(start); d > 5*time.Second {
 		t.Errorf("20 прогонов по всем кодам и странам заняли %v", d)
+	}
+}
+
+// Ревью: длинное слово в поиске не должно замедлять бота (раньше 250 000 символов — 8 с).
+func TestSearchLongInputFast(t *testing.T) {
+	e := newEngine(t)
+	start := time.Now()
+	e.SearchProducts(strings.Repeat("z", 250000), now)
+	e.SearchProducts(strings.Repeat("сахар ", 20000), now)
+	if d := time.Since(start); d > 300*time.Millisecond {
+		t.Errorf("поиск по очень длинному запросу занял %v", d)
+	}
+}
+
+func TestInputBounds(t *testing.T) {
+	// Запись «1e306» в чате читается как число 1 (экспонента не поддерживается), а в API
+	// такое значение отсекает CheckWeight — вместе с NaN и бесконечностью.
+	if CheckWeight(1e306) != ErrWeightTooBig || CheckWeight(math.NaN()) != ErrWeightNonPos || CheckWeight(math.Inf(1)) != ErrWeightTooBig {
+		t.Error("CheckWeight должен отклонять 1e306, NaN и бесконечность")
+	}
+	if _, err := ParseWeight("2000000000"); err != ErrWeightTooBig {
+		t.Errorf("2 млрд кг: %v", err)
+	}
+	if _, err := ParseQuantity("5000000000"); err != ErrQtyTooBig {
+		t.Errorf("5 млрд единиц: %v", err)
+	}
+	if got := ClipInput(strings.Repeat("я", 50), 40); len([]rune(got)) != 41 {
+		t.Errorf("ClipInput: %q", got)
 	}
 }

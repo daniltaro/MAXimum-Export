@@ -7,6 +7,7 @@ package service
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"maxexport/data"
@@ -49,6 +50,18 @@ func (e *InputError) Error() string { return e.Message }
 // ErrNotFound — расчёт не найден (устарел или программа перезапускалась).
 var ErrNotFound = errors.New(texts.T("error.calc_not_found"))
 
+// MaxInputEcho — сколько символов из ввода пользователя повторять в сообщении об ошибке.
+const MaxInputEcho = 40
+
+// NotYetValidMessage — «код начнёт действовать с …, пока используйте …» (ТЗ §14.1).
+func NotYetValidMessage(c engine.CodeCheck) string {
+	current := "—"
+	if c.Current != nil {
+		current = engine.FormatCode(c.Current.Code)
+	}
+	return texts.T("code.not_yet_valid", "code", engine.FormatCode(c.Product.Code), "date", engine.FormatDate(c.ValidFrom), "current", current)
+}
+
 // ---------------------------------------------------------------------------
 // Справочная информация
 // ---------------------------------------------------------------------------
@@ -87,8 +100,11 @@ func (s *Service) CheckWeight(code string, qty int64, weightKg float64, explicit
 	if p == nil {
 		return engine.UnitCheck{}, &InputError{"code", texts.T("code.not_found", "code", engine.FormatCode(code))}
 	}
-	if qty <= 0 || weightKg <= 0 {
-		return engine.UnitCheck{}, &InputError{"weight_kg", texts.T("error.non_positive")}
+	if err := engine.CheckQuantity(qty); err != nil {
+		return engine.UnitCheck{}, &InputError{"quantity", err.Error()}
+	}
+	if err := engine.CheckWeight(weightKg); err != nil {
+		return engine.UnitCheck{}, &InputError{"weight_kg", err.Error()}
 	}
 	return engine.CheckUnitWeight(p, qty, weightKg, explicitUnit), nil
 }
@@ -126,9 +142,9 @@ func (s *Service) Calculate(req CalcRequest) (*store.Calc, error) {
 	now := s.Now()
 	e := s.Engine
 
-	country := e.Cat.Country(req.Country)
+	country := e.Cat.Country(strings.ToLower(strings.TrimSpace(req.Country)))
 	if country == nil {
-		return nil, &InputError{"country", texts.T("country.unsupported", "input", req.Country)}
+		return nil, &InputError{"country", texts.T("country.unsupported", "input", engine.ClipInput(req.Country, MaxInputEcho))}
 	}
 
 	in := engine.Input{
@@ -144,19 +160,30 @@ func (s *Service) Calculate(req CalcRequest) (*store.Calc, error) {
 		in.Code, in.ReplacedFrom = c.Product.Code, c.Old.Code // ТЗ §15: расчёт по новому коду
 	case engine.CodeNonFood:
 		return nil, &InputError{"code", texts.T("code.non_food", "code", engine.FormatCode(c.Digits), "category", c.Product.Category)}
+	case engine.CodeNotYetValid:
+		return nil, &InputError{"code", NotYetValidMessage(c)}
 	case engine.CodeNotFound, engine.CodePrefix:
 		return nil, &InputError{"code", texts.T("code.not_found", "code", engine.FormatCode(c.Digits))}
 	default:
-		return nil, &InputError{"code", texts.T("code.bad_format", "input", req.Code)}
+		return nil, &InputError{"code", texts.T("code.bad_format", "input", engine.ClipInput(req.Code, MaxInputEcho))}
 	}
 
+	if err := engine.CheckQuantity(req.Quantity); err != nil {
+		return nil, &InputError{"quantity", err.Error()}
+	}
+	if req.WeightKg != 0 { // 0 — «Пропустить вес»
+		if err := engine.CheckWeight(req.WeightKg); err != nil {
+			return nil, &InputError{"weight_kg", err.Error()}
+		}
+	}
+	if req.NetKg != 0 {
+		if err := engine.CheckWeight(req.NetKg); err != nil {
+			return nil, &InputError{"net_kg", err.Error()}
+		}
+	}
 	switch {
-	case req.Quantity <= 0:
-		return nil, &InputError{"quantity", engine.ErrQtyNonPos.Error()}
-	case req.WeightKg < 0:
-		return nil, &InputError{"weight_kg", engine.ErrWeightNonPos.Error()}
-	case req.NetKg < 0 || (req.NetKg > 0 && req.WeightKg <= 0):
-		return nil, &InputError{"net_kg", texts.T("error.non_positive")}
+	case req.NetKg > 0 && req.WeightKg == 0:
+		return nil, &InputError{"weight_kg", texts.T("weight.need_gross")}
 	case req.NetKg > req.WeightKg && req.WeightKg > 0:
 		return nil, &InputError{"net_kg", engine.ErrNetGtGross.Error()}
 	case !req.ShipDate.IsZero() && engine.Day(req.ShipDate).Before(engine.Day(now)):

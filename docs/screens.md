@@ -264,7 +264,7 @@ flowchart TD
 | 1 код | `product.found_one` ⏎ `product.found_item` ⏎⏎ `product.choose` | `btn.code_choice`, `btn.manual_code`, `btn.back` |
 | 2–5 кодов | `product.found` (`{codes_word}` из `common.code.*`) ⏎ `product.found_item` × N ⏎⏎ `product.choose` | `btn.code_choice` × N, `btn.manual_code`, `btn.back` |
 | Больше 5 | `product.too_many` | `btn.manual_code`, `btn.back` |
-| Справочник недоступен (API 503) | `error.tnved_unavailable` (§14.8) | `btn.retry`, `btn.manual_code`, `btn.back` |
+| Справочник недоступен (§14.8; справочники вшиты в программу, поэтому только в режиме ведущего «Сбой справочника») | `error.tnved_unavailable` | `btn.retry`, `btn.manual_code`, `btn.back` |
 
 Когда код выбран, отправляется `code.selected` ⏎ `code.auto_note` (§20.1) и начинается Экран 4.
 
@@ -281,7 +281,8 @@ flowchart TD
 | `bad_format` | `code.bad_format` | `btn.search_by_name`, `btn.back` |
 | `not_found` | `code.not_found` | `btn.retry_code`, `btn.search_by_name`, `btn.back` |
 | `non_food` | `code.non_food` (`{category}`) | `btn.retry_code`, `btn.search_by_name`, `btn.back` |
-| API 503 | `error.tnved_unavailable` | `btn.retry`, `btn.back` |
+| `not_yet_valid` (код начнёт действовать позже, §14.1) | `message` из ответа (`code.not_yet_valid`: `{code}`, `{date}`, `{current}`) | `btn.retry_code`, `btn.search_by_name`, `btn.back` |
+| Справочник недоступен (только режим ведущего) | `error.tnved_unavailable` | `btn.retry`, `btn.back` |
 
 Если код введён вручную и не подходит к названию, которое пользователь вводил раньше, в отчёте появится предупреждение `CODE_MISMATCH`. На этом экране его не показываем.
 
@@ -415,8 +416,8 @@ flowchart TD
 
 | Действие | Что происходит |
 |---|---|
-| ✅ Рассчитать | Бот отправляет `review.calculating` и вызывает `POST /api/v1/calculations` → Экран 5. Ошибка 422 (данные не прошли проверку) → текст ошибки поля и возврат к нужному шагу. 5xx → `error.calc_failed` + `btn.retry`. Таймаут → `error.timeout`. |
-| 📅 Дата отгрузки | `review.date_prompt`; кнопки `btn.clear_date` (если дата уже задана) и `btn.back`. Ответы: `review.date_error`, `review.date_past`, `review.date_saved`, `review.date_removed` → снова карточка. |
+| ✅ Рассчитать | Бот отправляет `review.calculating` и вызывает `POST /api/v1/calculations` → Экран 5. Ошибка 400 `invalid_input` или `personal_data` → показать `error.message` и вернуться к шагу по `error.field` (см. «Ошибки API» ниже). 429 → `error.rate_limit`. 5xx → `error.calc_failed` + `btn.retry`. Таймаут → `error.timeout`. |
+| 📅 Дата отгрузки | `review.date_prompt`; кнопки `btn.clear_date` (если дата уже задана) и `btn.back`. Ответы: `review.date_error`, `review.date_past`, `review.date_too_far` (дальше 2 лет), `review.date_saved`, `review.date_removed` → снова карточка. В API дата передаётся как `ship_date` в формате ГГГГ-ММ-ДД; ошибка формата — `error.bad_iso_date`. |
 | ✏️ Изменить | `review.edit_prompt`; кнопки `btn.edit_country`, `btn.edit_product`, `btn.edit_qty`, `btn.edit_weight`, `btn.edit_date`, `btn.back`. Открывается нужный шаг, после него — снова карточка, остальные данные не меняются. Если поменялось количество или вес, вес единицы проверяется заново. Смена страны сохраняет код, смена продукта сбрасывает код. |
 | ⬅️ Назад | Шаг 3б (вес) |
 
@@ -442,13 +443,13 @@ flowchart TD
 | `params` | Параметры сделки (страна, продукт, код, количество, вес, даты) | Шапка результата, `ask.header`, `result.download_caption` |
 | `blocks[{id,title,lines}]` | Блоки в фиксированном порядке: `params`, `stop` (только при запрете), `packaging`, `product`, `labeling`, `documents`, `lab`, `duty`, `roles`, `warnings` | Мини-приложение; в чате уже внутри `chat_parts` |
 | `documents[{name,status,who,term,note}]` | Чек-лист документов; `status`: `required`, `conditional`, `no` | Чек-лист в мини-приложении |
-| `duty{type,rate_text,lines,total_rub,fee_rub,…}` | Пошлина. `type`: `none`, `advalorem`, `specific`, `combined`. Ещё, по OpenAPI: признак ЕАЭС, `complete` (хватило ли веса), `winner`, валюта и курс, `fee_basis`, учебная ли ставка | Карточка пошлины |
+| `duty{type,rate_text,lines,total_rub,fee_rub,…}` или `null` | Пошлина; `null`, если экспорт запрещён (`stop`). `type`: `none`, `advalorem`, `specific`, `combined`. Ещё, по OpenAPI: признак ЕАЭС, `complete` (хватило ли веса), `winner`, валюта и курс, `fee_basis`, учебная ли ставка | Карточка пошлины |
 | `warnings[{code,level,icon,text}]` | Предупреждения ядра; `level`: `info` ℹ️, `warn` ⚠️, `stop` 🚫 | Список предупреждений |
-| `roles[]` | Строки для 5 ролей: `director`, `manager`, `customs`, `accountant`, `export_control` | Вкладки ролей |
-| `stop` | Текст запрета экспорта или `null` | Баннер 🚫 и кнопка «Альтернативные рынки» |
+| `roles[]` | Строки для 5 ролей: `director`, `manager`, `customs`, `accountant`, `export_control`; пусто при `stop` | Вкладки ролей |
+| `stop` | Запрет экспорта (`{code,level,icon,text}`) или `null`. Если не `null`: `duty` = `null`, `documents` и `roles` пустые, в `blocks` нет блоков требований, а `warnings` — только оставшиеся при запрете | Баннер 🚫 и кнопка «Альтернативные рынки» |
 | `disclaimer` | Дисклеймер из §16, совпадает с `common.disclaimer` | Последняя строка |
 | `chat_parts[]` | Отчёт для чата: уже с заголовком «Результат расчёта», метками «(1/2)», «(2/2)» и дисклеймером в конце последней части | Чат |
-| `copy_text[]` | Короткая версия без разметки, без ролей и без ℹ️ | «📋 Скопировать отчёт» |
+| `copy_text[]` | Короткая версия без разметки, без ролей и без ℹ️; части не длиннее 4000 символов (лимит сообщения MAX) | «📋 Скопировать отчёт» |
 | `download_url` | Адрес `GET /api/v1/calculations/{id}/report.txt` | «📄 Скачать отчёт» |
 
 Коды предупреждений. Текст всегда приходит из API, уровень задаёт ядро:
@@ -618,16 +619,17 @@ flowchart TD
 
 **Чат.**
 - Сообщение: `ask.header` ⏎ `ask.examples`; кнопки `btn.back_to_result`, `btn.help`.
-- Каждый вопрос уходит в `POST /api/v1/calculations/{id}/questions {question}` → `{answer, topic, suggestions}`.
-- Ответ: `answer` ⏎ `ask.topic` ⏎⏎ `ask.footer`.
-- Кнопки после ответа: подсказки из `suggestions` (не больше 3, подпись не длиннее 30 символов; за длину отвечает API) и `btn.back_to_result`.
+- Каждый вопрос уходит в `POST /api/v1/calculations/{id}/questions {question}` → `{text, topic, topic_id, found, suggestions}`.
+- Ответ: `text` целиком — он уже содержит заголовок темы, ответ по отчёту и `ask.footer`. `ask.topic` отдельно не добавляется.
+- `found = false` — тема не распознана: `text` = `ask.not_found`, показать подсказки.
+- Кнопки после ответа: первые 3 подсказки из `suggestions` (API присылает до 5, каждая не длиннее 30 символов) и `btn.back_to_result`.
 - Пока ответ готовится — `ask.thinking` или индикатор «печатает…».
 
 **Мини-приложение.**
 - Нижняя панель поверх результата.
 - Сверху `ask.header`, чипы-подсказки.
 - Поле `miniapp.ask.placeholder`, подсказка `miniapp.ask.hint`, кнопка `miniapp.btn.send`; закрыть панель — `miniapp.btn.close`.
-- Ответы — пузырями. `ask.topic` — ссылка, которая прокручивает отчёт к блоку `topic`; идентификаторы тем совпадают с `blocks[].id`.
+- Ответы — пузырями. Подпись `ask.topic` (`{topic}` = поле `topic`) — ссылка, которая прокручивает отчёт к блоку по `topic_id`: `documents`, `lab`, `labeling`, `packaging`, `product` совпадают с `blocks[].id`; `duty`, `vat`, `rate` → блок `duty`; `registration`, `restrictions`, `logistics`, `terms` → блок `warnings`.
 
 | Состояние | Ключ |
 |---|---|
@@ -657,6 +659,22 @@ flowchart TD
   - устаревшие данные (`DATA_STALE`).
 
 ---
+
+## Ошибки API
+
+Все ошибки приходят в одном формате: `{"error": {"code", "field", "kind", "message"}}`. Поле `message` — готовый текст для пользователя.
+
+| HTTP | `error.code` | Когда | Что показать |
+|---|---|---|---|
+| 400 | `invalid_input` | Данные не прошли проверку (ноль, отрицательный или слишком большой вес, неизвестная страна, неверный код, дата в прошлом, поле длиннее 200 символов) | `message` под полем `field`; в чате — вернуться к нужному шагу |
+| 400 | `personal_data` | В тексте найдены персональные данные (телефон, e-mail, ИНН, номер договора); `kind` — что именно | `message` (= `error.pii`), поле не сохранять |
+| 400 | `bad_json` | Некорректный JSON или неизвестное поле | `error.generic` |
+| 404 | `not_found` | Расчёт не найден: хранится 24 часа и теряется при перезапуске | `error.calc_not_found` + «Новый расчёт» |
+| 413 | `too_large` | Тело запроса больше 64 КБ | `error.body_too_large` |
+| 429 | `rate_limited` | Больше 60 POST-запросов в минуту с одного адреса; заголовок `Retry-After` | `error.rate_limit` |
+| 500 | `internal` | Внутренняя ошибка | `error.generic` + «Повторить» |
+
+Ограничения полей: текстовые поля (`q`, `code`, `product_query`, `unit_word`) — до 200 символов, вопрос — до 500; количество — от 1 до 1 000 000 000; вес — больше 0 и до 1 000 000 000 кг; нетто — только вместе с брутто и не больше него.
 
 ## Доступность, планшет и ноутбук (§21)
 
@@ -801,4 +819,4 @@ flowchart TD
 3. **«✏️ Изменить данные» из результата в чате открывает выбор поля.** В мини-приложении эта кнопка открывает Экран 4 с заполненными полями.
 4. **Приветствие `start.welcome` взято из ТЗ дословно и начинается с «МАКС —».** Если в приветствии нужно имя бота, заменить на «MAXimum Export —». Вопрос к команде.
 5. **Для веса единицы добавлена кнопка «✅ Всё верно».** Она нужна, когда вариант «в тоннах» не подходит, а пользователь уверен в весе. Поле `unit_weight_confirmed` для неё в ядре уже есть.
-6. **«📋 Скопировать отчёт» может прийти двумя сообщениями.** ТЗ просит одно сообщение, но у полных расчётов (§22, сценарии 1–3) версия без оформления длиннее 3500 символов, поэтому `copy_text[]` содержит две части. Сократить `copy_text` до одной части — задача ядра на этапе 2.
+6. **«📋 Скопировать отчёт» может прийти двумя сообщениями.** ТЗ просит одно сообщение, но у полных расчётов (§22, сценарии 1–3) версия без оформления бывает длиннее 4000 символов (лимит сообщения MAX), поэтому `copy_text[]` может содержать две части. Сократить копию до одного сообщения — задача этапа 2.

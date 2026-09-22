@@ -15,6 +15,7 @@ type Config struct {
 	RateSource     string // training — учебный курс (по умолчанию), cbr — курс ЦБ РФ
 	AllowedOrigins string // для CORS: адреса фронтенда через запятую или "*"
 	BotToken       string // токен бота MAX (этап 4); пусто — бот не запускается
+	TrustProxy     bool   // true — сервер за обратным прокси (Caddy/nginx): адрес клиента из X-Forwarded-For
 }
 
 // Load читает .env (если он есть) и переменные окружения. Переменные окружения важнее .env.
@@ -26,6 +27,7 @@ func Load() Config {
 		RateSource:     get("RATE_SOURCE", "training"),
 		AllowedOrigins: get("ALLOWED_ORIGINS", "*"),
 		BotToken:       get("BOT_TOKEN", ""),
+		TrustProxy:     get("TRUST_PROXY", "false") == "true",
 	}
 }
 

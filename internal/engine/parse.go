@@ -38,7 +38,47 @@ var (
 	ErrQtyNotInt    = errors.New("⚠️ Количество — целое число единиц (мешков, коробок). Например: 5000")
 	ErrWeightNonPos = errors.New("⚠️ Вес должен быть больше нуля. Проверьте ввод.")
 	ErrNetGtGross   = errors.New("⚠️ Вес нетто не может быть больше веса брутто. Проверьте ввод.")
+	ErrQtyTooBig    = errors.New("⚠️ Слишком большое количество: прототип принимает до 1 000 000 000 единиц. Проверьте ввод.")
+	ErrWeightTooBig = errors.New("⚠️ Слишком большой вес: прототип принимает до 1 000 000 000 кг (1 млн т). Проверьте, в каких единицах указан вес.")
 )
+
+// Верхние границы ввода: защищают расчёт от переполнения (1e306 кг → «бесконечность»).
+const (
+	MaxQuantity = 1_000_000_000
+	MaxWeightKg = 1_000_000_000.0
+)
+
+// CheckQuantity — общая проверка количества для бота и API.
+func CheckQuantity(n int64) error {
+	switch {
+	case n <= 0:
+		return ErrQtyNonPos
+	case n > MaxQuantity:
+		return ErrQtyTooBig
+	}
+	return nil
+}
+
+// CheckWeight проверяет вес в килограммах (NaN и бесконечность тоже отклоняются).
+func CheckWeight(kg float64) error {
+	switch {
+	case kg != kg || kg <= 0: // kg != kg — это NaN
+		return ErrWeightNonPos
+	case kg > MaxWeightKg:
+		return ErrWeightTooBig
+	}
+	return nil
+}
+
+// ClipInput обрезает то, что ввёл пользователь, перед тем как показать это в ответе
+// (подстановка {input}): не длиннее limit символов, в конце «…».
+func ClipInput(s string, limit int) string {
+	s = strings.TrimSpace(s)
+	if r := []rune(s); len(r) > limit {
+		return string(r[:limit]) + "…"
+	}
+	return s
+}
 
 // Quantity — разобранное количество: "5000 мешков (по 50 кг)".
 type Quantity struct {
@@ -60,6 +100,9 @@ func ParseQuantity(s string) (Quantity, error) {
 	}
 	if v <= 0 {
 		return Quantity{}, ErrQtyNonPos
+	}
+	if v > MaxQuantity {
+		return Quantity{}, ErrQtyTooBig
 	}
 	if v != float64(int64(v)) {
 		return Quantity{}, ErrQtyNotInt
@@ -140,6 +183,9 @@ func parseOneWeight(s string) (parsedWeight, error) {
 		w.Kg, w.Explicit = v*1000, true
 	case kgRe.MatchString(rest):
 		w.Explicit = true
+	}
+	if err := CheckWeight(w.Kg); err != nil {
+		return parsedWeight{}, err
 	}
 	return w, nil
 }
