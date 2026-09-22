@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"maxexport/data"
 	"maxexport/internal/engine"
 )
 
@@ -54,37 +55,99 @@ func (rep Report) ChatParts(limit int) []string {
 	return parts
 }
 
-// Plain — компактная версия для кнопки «📋 Скопировать отчёт»: без разметки,
-// без блока ролей и информационных пометок, чтобы уместиться в одно сообщение.
-func (rep Report) Plain(limit int) []string {
-	var b strings.Builder
-	b.WriteString("MAXimum Export — результат расчёта\n\n")
-	for _, bl := range rep.Blocks {
-		if bl.ID == BRoles {
-			continue
-		}
-		if bl.ID == BWarnings {
-			bl.Lines = onlyImportant(bl.Lines)
-			if len(bl.Lines) == 0 {
-				continue
+// CopyLimit — лимит одного сообщения MAX: сводка для «📋 Скопировать отчёт» должна в него
+// поместиться целиком (ТЗ §15: «единым текстовым сообщением»).
+const CopyLimit = 4000
+
+// Summary — короткая сводка для кнопки «📋 Скопировать отчёт»: одно сообщение без разметки.
+// Полный отчёт пользователь получает файлом .txt, поэтому здесь только главное:
+// параметры, документы, пошлина, важные предупреждения. Если текст не помещается в limit,
+// предупреждения сокращаются — сводка всегда остаётся одним сообщением.
+func (rep Report) Summary(limit int) string {
+	r := rep.Result
+	head := []string{"MAXimum Export — сводка расчёта от " + engine.FormatDate(r.At)}
+	if b, ok := rep.Block(BParams); ok {
+		head = append(head, b.Lines...)
+	}
+
+	var body []string
+	if r.Stop != nil {
+		body = append(body, "", "🚫 "+r.Stop.Text)
+	} else {
+		var need, no []string
+		for _, d := range r.Req.Documents {
+			if d.Status == data.DocNotRequired {
+				no = append(no, d.Name)
+			} else {
+				need = append(need, "— "+d.Name)
 			}
 		}
-		b.WriteString(stripMarkup(renderBlock(bl, false)))
-		b.WriteString("\n\n")
-	}
-	b.WriteString(Disclaimer)
-	return splitLong(b.String(), limit)
-}
-
-// onlyImportant оставляет предупреждения ⚠️ и 🚫, убирая справочные ℹ️.
-func onlyImportant(lines []string) []string {
-	var out []string
-	for _, l := range lines {
-		if !strings.HasPrefix(l, "ℹ️") {
-			out = append(out, l)
+		body = append(body, "", "Документы:")
+		body = append(body, need...)
+		if len(no) > 0 {
+			body = append(body, "Не требуются: "+strings.Join(no, "; "))
+		}
+		body = append(body, "", "Пошлина: "+dutySummary(r))
+		if r.Req.LabDays[1] > 0 {
+			body = append(body, fmt.Sprintf("Лабораторные испытания: %d–%d рабочих дней (полный перечень — в файле)", r.Req.LabDays[0], r.Req.LabDays[1]))
 		}
 	}
+
+	var warns []string
+	for _, w := range VisibleWarnings(r) {
+		if w.Level != engine.Info && w.Code != engine.WExportBan {
+			warns = append(warns, w.Level.Icon()+" "+w.Text)
+		}
+	}
+	tail := []string{"", "Полный отчёт — в файле .txt.", Disclaimer} // полный дисклеймер: ТЗ §16
+
+	build := func(ws []string, maxLen int) string {
+		lines := append(append([]string{}, head...), body...)
+		if len(ws) > 0 {
+			lines = append(lines, "", "Внимание:")
+			for _, w := range ws {
+				if maxLen > 0 && runes(w) > maxLen {
+					w = string([]rune(w)[:maxLen]) + "…"
+				}
+				lines = append(lines, w)
+			}
+		}
+		return strings.Join(append(lines, tail...), "\n")
+	}
+	// Сначала пробуем целиком, затем сокращаем предупреждения, затем убираем лишние.
+	for _, maxLen := range []int{0, 300, 160} {
+		if out := build(warns, maxLen); runes(out) <= limit {
+			return out
+		}
+	}
+	for n := len(warns) - 1; n >= 0; n-- {
+		if out := build(warns[:n], 160); runes(out) <= limit {
+			return out
+		}
+	}
+	out := build(nil, 0)
+	if runes(out) > limit { // на всякий случай: сводка не может быть длиннее одного сообщения
+		out = string([]rune(out)[:limit-1]) + "…"
+	}
 	return out
+}
+
+// dutySummary — пошлина одной строкой: «не применяется (ЕАЭС)» или «1 650 000 ₽ + сбор 21 344 ₽».
+func dutySummary(r engine.Result) string {
+	d := r.Duty
+	switch {
+	case d.EAEU:
+		return "не применяется (ЕАЭС); НДС 0 % при подтверждении экспорта"
+	case !d.Complete:
+		return engine.DutyTypeName(d.Type) + " — укажите вес для расчёта"
+	case d.Type == data.DutyNone:
+		return fmt.Sprintf("не установлена — 0 ₽; таможенный сбор %s", engine.FormatRub(d.FeeRub))
+	case d.FeeRub > 0:
+		return fmt.Sprintf("%s (%s); таможенный сбор %s; всего %s", engine.FormatRub(d.TotalRub), d.RateText,
+			engine.FormatRub(d.FeeRub), engine.FormatRub(d.TotalRub+d.FeeRub))
+	default:
+		return fmt.Sprintf("%s (%s)", engine.FormatRub(d.TotalRub), d.RateText)
+	}
 }
 
 // renderBlock печатает блок: заголовок и строки с тире. Многострочные пункты

@@ -447,7 +447,7 @@ components:
         market: { type: string }
         disclaimer: { type: string }
         chat_parts: { type: array, items: { type: string }, description: "Части не длиннее 3500 символов, подписаны «(1/2)», «(2/2)»" }
-        copy_text: { type: array, items: { type: string }, description: "Части не длиннее 4000 символов (лимит сообщения MAX)" }
+        copy_text: { type: array, items: { type: string }, maxItems: 1, description: "Одна краткая сводка для «Скопировать отчёт», не длиннее 4000 символов (лимит сообщения MAX)" }
 
     Answer:
       type: object

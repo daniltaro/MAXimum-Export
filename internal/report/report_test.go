@@ -100,10 +100,9 @@ func TestAllCombinations(t *testing.T) {
 					t.Errorf("%s/%s: часть длиннее %d", c.ID, p.Code, ChatLimit)
 				}
 			}
-			for _, part := range rep.Plain(4000) {
-				if utf8.RuneCountInString(part) > 4000 {
-					t.Errorf("%s/%s: копия длиннее 4000", c.ID, p.Code)
-				}
+			// «Скопировать отчёт» — всегда одно сообщение (ТЗ §15), с дисклеймером.
+			if s := rep.Summary(CopyLimit); utf8.RuneCountInString(s) > CopyLimit || !strings.Contains(s, "демонстрационный прототип") {
+				t.Errorf("%s/%s: сводка длиннее %d символов или без дисклеймера", c.ID, p.Code, CopyLimit)
 			}
 			if rep.Result.Stop == nil {
 				roles, _ := rep.Block(BRoles)
@@ -129,5 +128,18 @@ func TestTextDocument(t *testing.T) {
 	}
 	if rep.FileName() != "MAXimum-Export_CN_1701121000_2026-09-21.txt" {
 		t.Errorf("имя файла: %s", rep.FileName())
+	}
+}
+
+func TestSummaryContent(t *testing.T) {
+	rep := calc(t, engine.Input{Country: "cn", Code: "1205109000", Qty: 100, WeightKg: 100000})
+	s := rep.Summary(CopyLimit)
+	for _, want := range []string{"сводка расчёта", "Семена рапса", "Документы:", "1 650 000 ₽", "21 344 ₽", "Полный отчёт — в файле"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("в сводке нет %q:\n%s", want, s)
+		}
+	}
+	if strings.Contains(s, "**") {
+		t.Error("в сводке для копирования не должно быть разметки")
 	}
 }

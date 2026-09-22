@@ -135,7 +135,7 @@ type CalcDTO struct {
 
 	Disclaimer string   `json:"disclaimer"`
 	ChatParts  []string `json:"chat_parts"` // тот же отчёт для чата (разметка **жирный**)
-	CopyText   []string `json:"copy_text"`  // текст для «Скопировать отчёт»
+	CopyText   []string `json:"copy_text"`  // «Скопировать отчёт»: одна сводка ≤ 4000 символов (массив — для совместимости)
 }
 
 // ParamsDTO — параметры сделки (блок «📦 Параметры сделки»).
@@ -253,7 +253,7 @@ func calcDTO(c *store.Calc) CalcDTO {
 		Market:     r.Req.Market,
 		Disclaimer: report.Disclaimer,
 		ChatParts:  rep.ChatParts(report.ChatLimit),
-		CopyText:   rep.Plain(4000),
+		CopyText:   []string{rep.Summary(report.CopyLimit)},
 		Rates: RatesDTO{Source: r.Rates.Source, Date: engine.FormatDate(r.Rates.Date),
 			Failed: r.Rates.Failed, Values: r.Rates.Values},
 	}
