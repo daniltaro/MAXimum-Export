@@ -1,7 +1,7 @@
-// Программа MAXimum Export: HTTP API для мини-приложения (этап 1.5).
-// На следующих этапах здесь же запускаются чат-бот MAX и файлы мини-приложения.
+// Программа MAXimum Export: чат-бот MAX и HTTP API для мини-приложения в одной программе.
 //
-//	go run ./cmd/app          # http://localhost:8080/api/v1/meta
+//	go run ./cmd/app          # API: http://localhost:8080/api/v1/meta
+//	                          # бот MAX запускается, если в .env задан BOT_TOKEN
 package main
 
 import (
@@ -18,6 +18,8 @@ import (
 	"maxexport/internal/api"
 	"maxexport/internal/config"
 	"maxexport/internal/engine"
+	"maxexport/internal/flow"
+	"maxexport/internal/maxbot"
 	"maxexport/internal/service"
 )
 
@@ -39,6 +41,22 @@ func main() {
 	}
 
 	svc := service.New(data.MustLoad(), rates)
+
+	// Чат-бот MAX: получает сообщения через long polling — белый IP и домен не нужны.
+	if cfg.BotToken != "" {
+		bot := flow.New(svc)
+		adapter, err := maxbot.New(cfg.BotToken, bot)
+		if err != nil {
+			log.Fatalf("MAX: %v", err)
+		}
+		go func() {
+			if err := adapter.Run(ctx); err != nil {
+				log.Printf("MAX: бот остановлен: %v (проверьте BOT_TOKEN)", err)
+			}
+		}()
+	} else {
+		log.Println("MAX: BOT_TOKEN не задан — бот не запущен, работает только API")
+	}
 	srv := &http.Server{
 		Addr:              net.JoinHostPort(cfg.Host, cfg.Port),
 		Handler:           api.New(svc, api.Options{AllowedOrigins: cfg.AllowedOrigins, TrustProxy: cfg.TrustProxy}).Handler(),
