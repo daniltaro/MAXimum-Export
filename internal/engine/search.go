@@ -86,6 +86,10 @@ func wordMatch(q, w string) int {
 	return matchNone
 }
 
+// WordsMatch — совпадают ли два слова с учётом окончаний и опечаток
+// (используется и в ответах на вопросы: «сертификаты» ≈ «сертификат»).
+func WordsMatch(a, b string) bool { return wordMatch(a, b) != matchNone }
+
 func commonPrefix(a, b string) int {
 	ra, rb := []rune(a), []rune(b)
 	n := 0

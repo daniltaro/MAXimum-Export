@@ -1,0 +1,425 @@
+openapi: 3.0.3
+info:
+  title: MAXimum Export API
+  version: 1.0.0
+  description: |
+    API мини-приложения MAX «MAXimum Export» — помощник по экспорту пищевой продукции
+    из России в Китай, Армению и Казахстан (учебный MVP).
+
+    * Все данные учебные (ТЗ §17, §24); каждый результат сопровождается дисклеймером.
+    * Персональные данные не принимаются и не хранятся. Расчёты хранятся в памяти 24 часа.
+    * Тексты ошибок в поле `error.message` можно показывать пользователю как есть.
+    * Контракт экранов и тексты интерфейса: `docs/screens.md`, `GET /api/v1/texts`.
+servers:
+  - url: http://localhost:8080
+    description: Локальный запуск (go run ./cmd/app или docker compose up)
+
+tags:
+  - name: Справочники
+  - name: Проверки
+  - name: Расчёт
+
+paths:
+  /healthz:
+    get:
+      summary: Проверка, что сервер жив
+      responses:
+        "200": { description: OK, content: { application/json: { example: { status: ok } } } }
+
+  /api/v1/meta:
+    get:
+      tags: [Справочники]
+      summary: Общие сведения — дата данных, курсы, дисклеймер
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              example:
+                bot_name: MAXimum Export
+                data_as_of: "20.09.2026"
+                rates: { source: training, date: "22.09.2026", failed: false, values: { EUR: 100, USD: 90, CNY: 12.5 } }
+                disclaimer: "⚠️ Это демонстрационный прототип (MVP)…"
+                training: true
+
+  /api/v1/texts:
+    get:
+      tags: [Справочники]
+      summary: Все тексты интерфейса (ключ → текст, подстановки в {фигурных скобках})
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: { type: string } }
+              example: { "common.step": "Шаг {step} из {total}", "btn.calc": "✅ Рассчитать" }
+
+  /api/v1/help:
+    get:
+      tags: [Справочники]
+      summary: Статьи справки (экран 6)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Article" } }
+
+  /api/v1/countries:
+    get:
+      tags: [Справочники]
+      summary: Страны назначения (экран 2)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Country" } }
+
+  /api/v1/products/search:
+    get:
+      tags: [Справочники]
+      summary: Поиск кода ТН ВЭД по названию товара (экран 3; опечатки допускаются)
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string }, example: сахар-песок }
+      responses:
+        "200":
+          description: До 5 кодов; too_many=true — попросить уточнить запрос
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Search" }
+        "400": { $ref: "#/components/responses/InvalidInput" }
+
+  /api/v1/products/{code}:
+    get:
+      tags: [Проверки]
+      summary: Проверка кода, введённого вручную
+      description: |
+        status: ok — код найден; replaced — код устарел, расчёт по новому (product) коду;
+        prefix — введены 4–9 цифр, см. candidates; not_found; non_food; bad_format.
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string }, example: "1701121000" }
+      responses:
+        "200":
+          description: Результат проверки
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CodeCheck" }
+
+  /api/v1/checks/weight:
+    post:
+      tags: [Проверки]
+      summary: Проверка «вес ↔ количество» до расчёта (ТЗ §14.4, §14.9)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WeightCheckRequest" }
+            example: { code: "1101000000", quantity: 1000, weight_kg: 5, explicit_unit: false }
+      responses:
+        "200":
+          description: atypical=true — показать message; tonnes_likely=true — спросить «кг или тонны?»
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WeightCheck" }
+        "400": { $ref: "#/components/responses/InvalidInput" }
+
+  /api/v1/calculations:
+    post:
+      tags: [Расчёт]
+      summary: Выполнить расчёт (экраны 2–4 → экран 5)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CalcRequest" }
+            examples:
+              scenario1:
+                summary: "Сценарий 1: Китай — сахар-песок"
+                value: { country: cn, code: "1701 12 100 0", quantity: 5000, unit_word: мешков, weight_kg: 250000 }
+              scenario2:
+                summary: "Сценарий 2: Армения — мёд натуральный"
+                value: { country: am, code: "0409000000", quantity: 200, weight_kg: 4000 }
+              scenario3:
+                summary: "Сценарий 3: Казахстан — мука пшеничная"
+                value: { country: kz, code: "1101 00 00 00", quantity: 1000, weight_kg: 50000 }
+              demo:
+                summary: "Режим ведущего: сбой источника курса"
+                value: { country: cn, code: "1205109000", quantity: 100, weight_kg: 100000, demo: { rate_fail: true } }
+      responses:
+        "201":
+          description: Расчёт выполнен
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Calculation" }
+        "400": { $ref: "#/components/responses/InvalidInput" }
+        "413": { description: Слишком большой запрос }
+
+  /api/v1/calculations/{id}:
+    get:
+      tags: [Расчёт]
+      summary: Получить сохранённый расчёт
+      parameters: [{ $ref: "#/components/parameters/CalcID" }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Calculation" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/calculations/{id}/report.txt:
+    get:
+      tags: [Расчёт]
+      summary: Скачать отчёт (.txt, UTF-8)
+      parameters: [{ $ref: "#/components/parameters/CalcID" }]
+      responses:
+        "200": { description: Текстовый документ, content: { text/plain: { schema: { type: string } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/calculations/{id}/questions:
+    post:
+      tags: [Расчёт]
+      summary: Вопрос по результату («❓ Задать вопрос»)
+      parameters: [{ $ref: "#/components/parameters/CalcID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [question], properties: { question: { type: string, maxLength: 500 } } }
+            example: { question: Сколько ждать регистрацию? }
+      responses:
+        "200":
+          description: Ответ; found=false — тема не распознана, показать suggestions
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Answer" }
+        "400": { $ref: "#/components/responses/InvalidInput" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/openapi.yaml:
+    get:
+      summary: Это описание API
+      responses:
+        "200": { description: OpenAPI 3 (YAML) }
+
+components:
+  parameters:
+    CalcID: { name: id, in: path, required: true, schema: { type: string }, example: 9f1c2a7b3d4e5f60 }
+
+  responses:
+    InvalidInput:
+      description: Ошибка во входных данных; message — готовый текст для пользователя
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: { code: invalid_input, field: quantity, message: "⚠️ Количество должно быть больше нуля." } }
+    NotFound:
+      description: Расчёт не найден (хранится 24 часа, после перезапуска теряется)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, enum: [invalid_input, not_found, too_large, bad_json, internal] }
+            field: { type: string }
+            message: { type: string }
+
+    Article:
+      type: object
+      properties: { id: { type: string }, title: { type: string }, text: { type: string } }
+
+    Country:
+      type: object
+      properties:
+        id: { type: string, enum: [cn, am, kz] }
+        name: { type: string, example: Китай }
+        full_name: { type: string }
+        flag: { type: string, example: 🇨🇳 }
+        eaeu: { type: boolean }
+        regime: { type: string, example: Третьи страны }
+        subtitle: { type: string, example: "Экспорт вне ЕАЭС, пошлины могут применяться" }
+
+    UnitForms:
+      type: object
+      properties: { one: { type: string, example: мешок }, few: { type: string, example: мешка }, many: { type: string, example: мешков } }
+
+    Product:
+      type: object
+      properties:
+        code: { type: string, example: "1701121000" }
+        code_display: { type: string, example: "1701 12 100 0" }
+        name: { type: string, example: Сахар-песок свекловичный }
+        category: { type: string }
+        food: { type: boolean }
+        unit: { $ref: "#/components/schemas/UnitForms" }
+        typical_unit_kg: { type: array, items: { type: number }, minItems: 2, maxItems: 2 }
+        bulk: { type: boolean, description: "Насыпной груз — количество в тоннах" }
+        temp_c: { type: object, nullable: true, properties: { min: { type: number }, max: { type: number }, note: { type: string } } }
+        training: { type: boolean }
+        note: { type: string }
+
+    Search:
+      type: object
+      properties:
+        query: { type: string }
+        items: { type: array, items: { $ref: "#/components/schemas/Product" } }
+        total: { type: integer }
+        too_many: { type: boolean }
+
+    CodeCheck:
+      type: object
+      properties:
+        status: { type: string, enum: [ok, bad_format, not_found, non_food, replaced, prefix] }
+        message: { type: string }
+        product: { $ref: "#/components/schemas/Product" }
+        replaced_from: { $ref: "#/components/schemas/Product" }
+        candidates: { type: array, items: { $ref: "#/components/schemas/Product" } }
+
+    WeightCheckRequest:
+      type: object
+      required: [code, quantity, weight_kg]
+      properties:
+        code: { type: string }
+        quantity: { type: integer, minimum: 1 }
+        weight_kg: { type: number, exclusiveMinimum: true, minimum: 0 }
+        explicit_unit: { type: boolean }
+
+    WeightCheck:
+      type: object
+      properties:
+        per_unit_kg: { type: number }
+        typical_unit_kg: { type: array, items: { type: number } }
+        atypical: { type: boolean }
+        tonnes_likely: { type: boolean }
+        per_unit_if_tonnes: { type: number }
+        message: { type: string }
+
+    CalcRequest:
+      type: object
+      required: [country, code, quantity]
+      properties:
+        country: { type: string, enum: [cn, am, kz] }
+        code: { type: string, description: "10 цифр; пробелы допустимы" }
+        product_query: { type: string, description: "Что пользователь искал — для проверки соответствия кода типу продукции" }
+        manual_code: { type: boolean }
+        quantity: { type: integer, minimum: 1 }
+        unit_word: { type: string, example: мешков }
+        weight_kg: { type: number, nullable: true, description: "Брутто, кг; не передавать — «Пропустить вес»" }
+        net_kg: { type: number, nullable: true }
+        ship_date: { type: string, format: date, example: "2026-11-15" }
+        unit_weight_confirmed: { type: boolean }
+        previous_id: { type: string, description: "Прошлый расчёт — для предупреждения о скачке курса" }
+        demo:
+          type: object
+          description: Режим ведущего
+          properties:
+            rate_fail: { type: boolean }
+            rate_jump_pct: { type: number }
+            profile_down: { type: boolean }
+            data_stale: { type: boolean }
+
+    Warning:
+      type: object
+      properties:
+        code: { type: string, example: REGISTRATION }
+        level: { type: string, enum: [info, warn, stop] }
+        icon: { type: string, example: ⚠️ }
+        text: { type: string }
+
+    Calculation:
+      type: object
+      properties:
+        id: { type: string }
+        created_at: { type: string, format: date-time }
+        calc_date: { type: string, example: "22.09.2026" }
+        data_as_of: { type: string, example: "20.09.2026" }
+        download_url: { type: string, example: /api/v1/calculations/9f1c2a7b3d4e5f60/report.txt }
+        file_name: { type: string }
+        params:
+          type: object
+          properties:
+            country: { $ref: "#/components/schemas/Country" }
+            product: { $ref: "#/components/schemas/Product" }
+            quantity: { type: integer }
+            unit: { type: string, example: мешков }
+            weight_kg: { type: number, nullable: true }
+            net_kg: { type: number, nullable: true }
+            ship_date: { type: string, format: date }
+            replaced_from: { type: string }
+        stop: { allOf: [{ $ref: "#/components/schemas/Warning" }], nullable: true, description: "Экспорт запрещён — показать вместо требований" }
+        blocks:
+          type: array
+          description: "Блоки в фиксированном порядке: params, stop, packaging, product, labeling, documents, lab, duty, roles, warnings"
+          items:
+            type: object
+            properties: { id: { type: string }, title: { type: string }, lines: { type: array, items: { type: string } } }
+        documents:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              status: { type: string, enum: [required, conditional, "no"] }
+              who: { type: string }
+              term: { type: string }
+              note: { type: string }
+        duty:
+          type: object
+          properties:
+            regime: { type: string, enum: [eaeu, third] }
+            type: { type: string, enum: [none, advalorem, specific, combined] }
+            type_name: { type: string }
+            rate_text: { type: string }
+            basis: { type: string }
+            valid_from: { type: string }
+            valid_to: { type: string }
+            note: { type: string }
+            training: { type: boolean }
+            lines: { type: array, items: { type: object, properties: { label: { type: string }, formula: { type: string }, rub: { type: number } } } }
+            total_rub: { type: number }
+            complete: { type: boolean }
+            winner: { type: string }
+            customs_value_rub: { type: number }
+            currency: { type: string }
+            rate_rub: { type: number }
+            fee_rub: { type: number }
+            fee_basis: { type: string }
+            total_with_fee_rub: { type: number }
+            vat: { type: string }
+            declaration: { type: string }
+            customs_fee_note: { type: string }
+        rates:
+          type: object
+          properties:
+            source: { type: string, enum: [training, cbr] }
+            date: { type: string }
+            failed: { type: boolean }
+            values: { type: object, additionalProperties: { type: number } }
+        warnings: { type: array, items: { $ref: "#/components/schemas/Warning" } }
+        roles:
+          type: array
+          items:
+            type: object
+            properties:
+              role: { type: string, enum: [director, manager, customs, accountant, export_control] }
+              title: { type: string }
+              text: { type: string }
+        market: { type: string }
+        disclaimer: { type: string }
+        chat_parts: { type: array, items: { type: string } }
+        copy_text: { type: array, items: { type: string } }
+
+    Answer:
+      type: object
+      properties:
+        topic: { type: string, example: Регистрация производителя }
+        text: { type: string }
+        found: { type: boolean }
+        suggestions: { type: array, items: { type: string } }
