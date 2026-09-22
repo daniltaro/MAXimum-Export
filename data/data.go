@@ -99,32 +99,52 @@ func (c *Catalog) ProductsWithPrefix(prefix string) []*Product {
 	return out
 }
 
-// Requirements собирает требования страны к товару: сначала общие (common),
-// затем требования группы товара. Второе значение false — профиль группы не найден,
-// тогда возвращаются только общие требования (ТЗ §14.8).
-func (c *Country) Requirements(group string) (Requirements, bool) {
+// Requirements собирает требования страны к товару: общие требования страны (common),
+// затем требования группы товара, затем уточнения для кода. Второе значение false —
+// профиль группы не найден: тогда остаются только общие требования (ТЗ §14.8).
+func (c *Country) Requirements(group, code string) (Requirements, bool) {
 	g, ok := c.Groups[group]
+	p := c.productOverride(code)
 	r := Requirements{
-		Packaging: concat(c.Common.Packaging, g.Packaging),
-		Product:   concat(c.Common.Product, g.Product),
-		Labeling:  concat(c.Common.Labeling, g.Labeling),
-		Documents: mergeDocs(c.Common.Documents, g.Documents),
-		Lab:       concat(c.Common.Lab, g.Lab),
+		Packaging: concat(c.Common.Packaging, g.Packaging, p.Packaging),
+		Product:   concat(c.Common.Product, g.Product, p.Product),
+		Labeling:  concat(c.Common.Labeling, g.Labeling, p.Labeling),
+		Documents: mergeDocs(mergeDocs(c.Common.Documents, g.Documents), p.Documents),
+		Lab:       concat(c.Common.Lab, g.Lab, p.Lab),
 		LabDays:   c.Common.LabDays,
 		Market:    g.Market,
-		// Регистрация нужна, если её требует группа или страна для всех товаров.
-		Registration: c.Common.Registration || g.Registration,
+		// Регистрация нужна, если её требует страна, группа или конкретный товар.
+		Registration: c.Common.Registration || g.Registration || p.Registration,
 	}
 	if g.LabDays[1] > 0 {
 		r.LabDays = g.LabDays
 	}
+	if p.LabDays[1] > 0 {
+		r.LabDays = p.LabDays
+	}
+	if p.Market != "" {
+		r.Market = p.Market
+	}
 	return r, ok
 }
 
-func concat(a, b []string) []string {
-	out := make([]string, 0, len(a)+len(b))
-	out = append(out, a...)
-	return append(out, b...)
+// productOverride — уточнение для кода: запись Products с самым длинным подходящим ключом.
+func (c *Country) productOverride(code string) Requirements {
+	best := ""
+	for prefix := range c.Products {
+		if code != "" && strings.HasPrefix(code, prefix) && len(prefix) > len(best) {
+			best = prefix
+		}
+	}
+	return c.Products[best]
+}
+
+func concat(lists ...[]string) []string {
+	var out []string
+	for _, l := range lists {
+		out = append(out, l...)
+	}
+	return out
 }
 
 // mergeDocs объединяет документы: если группа указывает документ с тем же названием,

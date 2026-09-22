@@ -192,7 +192,7 @@ func dutyLines(r engine.Result) []string {
 		if rec.Note != "" {
 			out = append(out, rec.Note)
 		}
-		out = append(out, "Итого к уплате: **0 ₽**", rateLine(r))
+		out = append(out, "Итого к уплате: **0 ₽**", feeLine(d), rateLine(r))
 		return append(out, taxLines(r)...)
 	}
 
@@ -223,6 +223,10 @@ func dutyLines(r engine.Result) []string {
 	default:
 		out = append(out, "Итого к уплате: **"+engine.FormatRub(d.TotalRub)+"**")
 	}
+	out = append(out, feeLine(d))
+	if d.Complete && d.FeeRub > 0 && d.TotalRub > 0 {
+		out = append(out, "Всего таможенных платежей (пошлина + сбор): **"+engine.FormatRub(d.TotalRub+d.FeeRub)+"**")
+	}
 
 	out = append(out, rateLine(r))
 	if r.Rates.Failed {
@@ -231,14 +235,17 @@ func dutyLines(r engine.Result) []string {
 	return append(out, taxLines(r)...)
 }
 
-// taxLines — НДС, декларация и таможенный сбор (для бухгалтера ВЭД).
+// taxLines — НДС и декларирование (для бухгалтера ВЭД).
 func taxLines(r engine.Result) []string {
-	tax := r.Country.Tax
-	out := []string{"НДС: " + tax.VAT, "Декларация: " + tax.Declaration}
-	if tax.CustomsFee != "" {
-		out = append(out, tax.CustomsFee)
+	return []string{"НДС: " + r.Country.Tax.VAT, "Декларация: " + r.Country.Tax.Declaration}
+}
+
+// feeLine — таможенный сбор за декларирование (вне ЕАЭС).
+func feeLine(d engine.DutyResult) string {
+	if d.FeeRub <= 0 {
+		return "Таможенный сбор: " + d.FeeBasis
 	}
-	return out
+	return "Таможенный сбор: " + engine.FormatRub(d.FeeRub) + " — " + d.FeeBasis
 }
 
 // rateLine — какой курс использован и откуда (ТЗ §14.5, §20.6).

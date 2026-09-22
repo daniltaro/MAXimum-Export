@@ -117,8 +117,12 @@ func (e *Engine) warnings(r Result, env Env) []Warning {
 	// 1. Страна назначения запретила ввоз (ТЗ §14.2).
 	for _, b := range e.Cat.Measures.ImportBans {
 		if b.Country == c.ID && hasPrefix(p.Code, b.Prefixes) && activeOn(b.From, b.To, day) {
-			text := fmt.Sprintf("%s — с %s (основание — %s). Рекомендую уточнить сроки снятия ограничения у импортёра или таможенного брокера.",
-				b.Name, isoToRu(b.From), b.Basis)
+			since := ""
+			if b.From != "" {
+				since = " — с " + isoToRu(b.From)
+			}
+			text := fmt.Sprintf("%s%s (основание — %s). Рекомендую уточнить сроки снятия ограничения у импортёра или таможенного брокера.",
+				b.Name, since, b.Basis)
 			if b.Training {
 				text += " (учебный пример)"
 			}

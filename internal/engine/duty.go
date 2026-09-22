@@ -31,6 +31,9 @@ type DutyResult struct {
 	Currency        string  // валюта специфической ставки: "EUR", "USD", "RUB"
 	RateRub         float64 // курс этой валюты, ₽
 	Winner          string  // для комбинированной: «по весу» или «по стоимости»
+
+	FeeRub   float64 // таможенный сбор за декларирование, ₽ (0 — посчитать нельзя)
+	FeeBasis string  // как определён сбор
 }
 
 // FindDuty — запись о пошлине с самым длинным подходящим префиксом кода.
@@ -140,7 +143,27 @@ func (e *Engine) CalcDuty(p *data.Product, c *data.Country, baseKg float64, rate
 			r.TotalRub, r.Winner = la.Rub, "расчёт по стоимости даёт большую сумму"
 		}
 	}
+	r.FeeRub, r.FeeBasis = e.customsFee(r)
 	return r
+}
+
+// customsFee — таможенный сбор за декларирование при экспорте (для бухгалтера ВЭД).
+// Без пошлины или со специфической пошлиной — фиксированная сумма; с адвалорной
+// или комбинированной — по шкале от таможенной стоимости.
+func (e *Engine) customsFee(r DutyResult) (float64, string) {
+	f := e.Cat.Measures.CustomsFees
+	if r.Type == data.DutyNone || r.Type == data.DutySpecific {
+		return f.FlatRub, f.FlatNote + "; " + f.Basis
+	}
+	if r.CustomsValueRub <= 0 {
+		return 0, "по шкале от таможенной стоимости — укажите вес, чтобы оценить стоимость; " + f.Basis
+	}
+	for _, l := range f.Scale {
+		if l.UpToRub == 0 || r.CustomsValueRub <= l.UpToRub {
+			return l.FeeRub, "по таможенной стоимости " + FormatRub(r.CustomsValueRub) + " (учебная оценка); " + f.Basis
+		}
+	}
+	return 0, f.Basis
 }
 
 // rateText описывает ставку словами.

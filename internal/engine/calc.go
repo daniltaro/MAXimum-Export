@@ -87,10 +87,10 @@ func (e *Engine) Calculate(in Input, env Env) Result {
 
 	// Требования страны назначения (ТЗ §12: «загружает профиль требований»).
 	var ok bool
-	res.Req, ok = res.Country.Requirements(res.Product.Group)
+	res.Req, ok = res.Country.Requirements(res.Product.Group, res.Product.Code)
 	res.ProfileFallback = !ok || env.Flags.ProfileDown
 	if env.Flags.ProfileDown {
-		res.Req, _ = res.Country.Requirements("") // только общие требования страны
+		res.Req, _ = res.Country.Requirements("", "") // только общие требования страны
 	}
 
 	// Пошлина: для специфической ставки берём нетто, если оно указано, иначе брутто.

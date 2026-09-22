@@ -76,7 +76,7 @@ func TestCountriesHaveAllGroups(t *testing.T) {
 	c := MustLoad()
 	for _, country := range c.Countries {
 		for g := range groups {
-			req, ok := country.Requirements(g)
+			req, ok := country.Requirements(g, "")
 			if !ok {
 				t.Errorf("%s.json: нет профиля группы %q", country.ID, g)
 				continue
@@ -145,5 +145,51 @@ func TestMeasures(t *testing.T) {
 		if c.Country(b.Country) == nil {
 			t.Errorf("запрет ввоза: неизвестная страна %q", b.Country)
 		}
+	}
+}
+
+// Если в одной группе разные товары (разные первые 6 цифр кода), общих строк группы
+// недостаточно: у каждого такого товара должно быть уточнение в разделе products страны.
+func TestMixedGroupsHaveProductOverrides(t *testing.T) {
+	c := MustLoad()
+	subheadings := map[string]map[string]bool{} // группа → набор 6-значных субпозиций
+	for _, p := range c.Products {
+		if p.Food && p.ReplacedBy == nil {
+			if subheadings[p.Group] == nil {
+				subheadings[p.Group] = map[string]bool{}
+			}
+			subheadings[p.Group][p.Code[:6]] = true
+		}
+	}
+	for _, country := range c.Countries {
+		for prefix := range country.Products {
+			if len(c.ProductsWithPrefix(prefix)) == 0 {
+				t.Errorf("%s.json: уточнение products[%q] не подходит ни к одному коду", country.ID, prefix)
+			}
+		}
+		for _, p := range c.Products {
+			if !p.Food || p.ReplacedBy != nil || len(subheadings[p.Group]) < 2 {
+				continue
+			}
+			if o := country.productOverride(p.Code); o.Market == "" && len(o.Product) == 0 {
+				t.Errorf("%s.json: у товара %s (%s) из смешанной группы %q нет уточнения в products (нужны хотя бы product и market)",
+					country.ID, p.Code, p.Name, p.Group)
+			}
+		}
+	}
+}
+
+func TestCustomsFees(t *testing.T) {
+	f := MustLoad().Measures.CustomsFees
+	if f.FlatRub <= 0 || len(f.Scale) == 0 || f.Basis == "" {
+		t.Fatalf("measures.json: не заполнены customs_fees: %+v", f)
+	}
+	prev := 0.0
+	for i, l := range f.Scale {
+		last := i == len(f.Scale)-1
+		if (l.UpToRub <= prev && !last) || (last && l.UpToRub != 0) {
+			t.Errorf("шкала сборов: ступени должны возрастать, последняя — up_to_rub 0 («свыше»): %+v", f.Scale)
+		}
+		prev = l.UpToRub
 	}
 }

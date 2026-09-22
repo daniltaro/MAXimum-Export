@@ -316,6 +316,37 @@ func TestDutyRealRecords(t *testing.T) {
 	}
 }
 
+// Таможенный сбор за декларирование (ПП РФ № 1637): фиксированный или по шкале.
+func TestCustomsFee(t *testing.T) {
+	e := newEngine(t)
+	cn := e.Cat.Country("cn")
+	// Сахар: пошлины нет → фиксированный сбор 8 262 ₽.
+	if d := e.CalcDuty(e.Cat.Product("1701121000"), cn, 250000, Training(now)); d.FeeRub != 8262 {
+		t.Errorf("сахар: сбор %v, ожидалось 8 262 ₽", d.FeeRub)
+	}
+	// Рапс 100 т: комбинированная ставка → сбор по шкале от таможенной стоимости.
+	rapeseed := firstWithPrefix(t, e, "1205")
+	d := e.CalcDuty(rapeseed, cn, 100000, Training(now))
+	var want float64
+	for _, l := range e.Cat.Measures.CustomsFees.Scale {
+		if l.UpToRub == 0 || d.CustomsValueRub <= l.UpToRub {
+			want = l.FeeRub
+			break
+		}
+	}
+	if d.FeeRub != want || d.FeeRub == 0 {
+		t.Errorf("рапс: стоимость %v, сбор %v, ожидалось %v", d.CustomsValueRub, d.FeeRub, want)
+	}
+	// 4,3 млн ₽ больше ступени «до 4,2 млн» → ступень «до 5,5 млн» = 21 344 ₽.
+	if rapeseed.PriceRubPerT == 43000 && d.FeeRub != 21344 {
+		t.Errorf("рапс 100 т × 43 000 ₽ = 4,3 млн ₽ → сбор 21 344 ₽, получено %v", d.FeeRub)
+	}
+	// ЕАЭС: сборов нет.
+	if d := e.CalcDuty(rapeseed, e.Cat.Country("kz"), 100000, Training(now)); d.FeeRub != 0 {
+		t.Errorf("ЕАЭС: сбор должен быть 0, получено %v", d.FeeRub)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Полный расчёт: 3 сценария ТЗ §22
 // ---------------------------------------------------------------------------
@@ -420,6 +451,17 @@ func TestImportBanAndQuota(t *testing.T) {
 		ShipDate: time.Date(2027, 3, 1, 0, 0, 0, 0, MSK)}, env())
 	if !hasWarning(r, WQuota) || strings.Contains(warningText(r, WQuota), "не действует") {
 		t.Errorf("пшеница в Китай с отгрузкой 01.03.2027: квота должна действовать: %q", warningText(r, WQuota))
+	}
+}
+
+func TestPoppyImportBanChina(t *testing.T) {
+	e := newEngine(t)
+	r := e.Calculate(Input{Country: "cn", Code: "1207919000", Qty: 10, WeightKg: 500}, env())
+	if !strings.Contains(warningText(r, WImportBan), "мака") {
+		t.Errorf("мак в Китай: ожидалось предупреждение о запрете ввоза, получено %q", warningText(r, WImportBan))
+	}
+	if r := e.Calculate(Input{Country: "kz", Code: "1207919000", Qty: 10, WeightKg: 500}, env()); hasWarning(r, WImportBan) {
+		t.Error("запрет ввоза мака действует только в Китае")
 	}
 }
 

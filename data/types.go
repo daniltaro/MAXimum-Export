@@ -119,7 +119,12 @@ type Country struct {
 	Authority string `json:"authority"` // где проверить актуальность требований (ТЗ §20.3)
 
 	Common Requirements            `json:"common"` // требования для всех групп товаров
-	Groups map[string]Requirements `json:"groups"` // дополнительные требования по группам: "sugar" → ...
+	Groups map[string]Requirements `json:"groups"` // требования группы — общие для всех её товаров: "sugar" → ...
+
+	// Products — уточнения для конкретных товаров внутри группы. Ключ — начало кода ТН ВЭД
+	// ("1205" — рапс, "170191" — ванильный сахар); если подходят несколько ключей, берётся
+	// самый длинный. Строки уточнения добавляются к строкам группы, Market и LabDays заменяют групповые.
+	Products map[string]Requirements `json:"products,omitempty"`
 
 	Tax       TaxInfo  `json:"tax"`       // НДС, декларация, сборы
 	Logistics []string `json:"logistics"` // особенности маршрута (транзит и т. п.)
@@ -134,7 +139,7 @@ type Registry struct {
 }
 
 // Requirements — требования по блокам отчёта (ТЗ §15, экран 5, блоки 1–5).
-// Итоговые требования = common страны + группа товара (сначала общие, потом групповые).
+// Итоговые требования = common страны + группа товара + уточнение для кода (в этом порядке).
 type Requirements struct {
 	Packaging []string `json:"packaging,omitempty"` // ✅ Упаковка
 	Product   []string `json:"product,omitempty"`   // ✅ Продукция
@@ -172,7 +177,7 @@ type Doc struct {
 type TaxInfo struct {
 	VAT         string `json:"vat"`         // НДС при экспорте и как его подтвердить
 	Declaration string `json:"declaration"` // «Декларация на товары (ЭК 10)» или «статистическая форма»
-	CustomsFee  string `json:"customs_fee"` // таможенный сбор
+	CustomsFee  string `json:"customs_fee"` // таможенный сбор для ЕАЭС (вне ЕАЭС сбор рассчитывается по measures.json)
 	DutyNote    string `json:"duty_note"`   // пояснение к пошлине (для ЕАЭС)
 }
 
@@ -197,6 +202,21 @@ type Measures struct {
 	ExportBans  []ExportBan   `json:"export_bans"`
 	ImportBans  []ImportBan   `json:"import_bans"`
 	Antidumping []Antidumping `json:"antidumping"`
+	CustomsFees CustomsFees   `json:"customs_fees"`
+}
+
+// CustomsFees — таможенные сборы за декларирование при экспорте за пределы ЕАЭС.
+type CustomsFees struct {
+	Basis    string     `json:"basis"`     // постановление Правительства РФ
+	FlatRub  float64    `json:"flat_rub"`  // фиксированный сбор: экспорт без пошлины или со специфической пошлиной
+	FlatNote string     `json:"flat_note"` // условие фиксированного сбора
+	Scale    []FeeLevel `json:"scale"`     // шкала по таможенной стоимости: адвалорная и комбинированная пошлина
+}
+
+// FeeLevel — ступень шкалы: при таможенной стоимости до UpToRub (0 — свыше) сбор FeeRub.
+type FeeLevel struct {
+	UpToRub float64 `json:"up_to_rub"`
+	FeeRub  float64 `json:"fee_rub"`
 }
 
 // DutyType — вид экспортной пошлины (ТЗ §13, шаг 1).
