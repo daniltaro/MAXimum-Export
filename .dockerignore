@@ -1,0 +1,10 @@
+# В образ не попадают: история git, секреты, документация и отчёты консольного чата.
+.git
+.gitignore
+.env
+reports/
+docs/
+*.md
+Dockerfile
+compose.yaml
+.dockerignore

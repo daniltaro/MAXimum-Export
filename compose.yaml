@@ -1,0 +1,22 @@
+# Запуск всего решения одной командой:
+#
+#   docker compose up --build
+#
+# Поднимается одна программа: чат-бот MAX (если в .env задан BOT_TOKEN) и HTTP API
+# мини-приложения на http://localhost:8080. Остановить — Ctrl+C или docker compose down.
+services:
+  app:
+    build: .
+    image: maxexport:local
+    container_name: maxexport
+    # Настройки берутся из .env (создайте его из .env.example). Без файла тоже запустится:
+    # тогда работает только API, а бот MAX ждёт токен.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8080"
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
