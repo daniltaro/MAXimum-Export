@@ -159,7 +159,7 @@ flowchart TD
 | Неизвестная команда | `error.unknown_command` | — | |
 | Слишком длинный ввод | `error.too_long` (`{limit}`: 200 символов на полях, 500 на вопросе) | `maxlength` у поля | `error.too_long`, `ask.too_long` |
 | Сбой, таймаут, лимит запросов (§21: ответ не дольше 5 с) | `error.generic`, `error.timeout`, `error.rate_limit` + `btn.retry` | `miniapp.state.server_error`, `miniapp.state.offline` + `miniapp.btn.retry` | |
-| Загрузка | Индикатор «печатает…» в MAX; перед расчётом — `review.calculating` | Скелетон или спиннер с текстом, если ответа нет дольше 300 мс | `miniapp.state.*` |
+| Загрузка | Индикатор «печатает…» в MAX перед каждым ответом; `review.calculating` и `ask.thinking` — тексты для мини-приложения | Скелетон или спиннер с текстом, если ответа нет дольше 300 мс | `miniapp.state.*` |
 | Учебные данные (§21) | Пометки «учебный курс» и «учебная ставка» уже есть в строках API | Бейдж `common.training_badge`; внизу `common.data_as_of`, а если расчёт выполнен по учебному курсу — ещё `common.training_rate` | |
 
 ---
@@ -416,7 +416,7 @@ flowchart TD
 
 | Действие | Что происходит |
 |---|---|
-| ✅ Рассчитать | Бот отправляет `review.calculating` и вызывает `POST /api/v1/calculations` → Экран 5. Ошибка 400 `invalid_input` или `personal_data` → показать `error.message` и вернуться к шагу по `error.field` (см. «Ошибки API» ниже). 429 → `error.rate_limit`. 5xx → `error.calc_failed` + `btn.retry`. Таймаут → `error.timeout`. |
+| ✅ Рассчитать | Бот включает индикатор «печатает…» (расчёт мгновенный, отдельное сообщение `review.calculating` в чат не отправляется — оно осталось для мини-приложения) и вызывает `POST /api/v1/calculations` → Экран 5. Ошибка 400 `invalid_input` или `personal_data` → показать `error.message` и вернуться к шагу по `error.field` (см. «Ошибки API» ниже). 429 → `error.rate_limit`. 5xx → `error.calc_failed` + `btn.retry`. Таймаут → `error.timeout`. |
 | 📅 Дата отгрузки | `review.date_prompt`; кнопки `btn.clear_date` (если дата уже задана) и `btn.back`. Ответы: `review.date_error`, `review.date_past`, `review.date_too_far` (дальше 2 лет), `review.date_saved`, `review.date_removed` → снова карточка. В API дата передаётся как `ship_date` в формате ГГГГ-ММ-ДД; ошибка формата — `error.bad_iso_date`. |
 | ✏️ Изменить | `review.edit_prompt`; кнопки `btn.edit_country`, `btn.edit_product`, `btn.edit_qty`, `btn.edit_weight`, `btn.edit_date`, `btn.back`. Открывается нужный шаг, после него — снова карточка, остальные данные не меняются. Если поменялось количество или вес, вес единицы проверяется заново. Смена страны сохраняет код, смена продукта сбрасывает код. |
 | ⬅️ Назад | Шаг 3б (вес) |
@@ -624,7 +624,7 @@ flowchart TD
 - Ответ: `text` целиком — он уже содержит заголовок темы, ответ по отчёту и `ask.footer`. `ask.topic` отдельно не добавляется.
 - `found = false` — тема не распознана: `text` = `ask.not_found`, показать подсказки.
 - Кнопки после ответа: первые 3 подсказки из `suggestions` (API присылает до 5, каждая не длиннее 30 символов) и `btn.back_to_result`.
-- Пока ответ готовится — `ask.thinking` или индикатор «печатает…».
+- Пока ответ готовится — индикатор «печатает…» (в мини-приложении — `ask.thinking`).
 
 **Мини-приложение.**
 - Нижняя панель поверх результата.
@@ -651,6 +651,7 @@ flowchart TD
 - **Где хранятся названия сценариев.** В ядре, вместе с самими сценариями (этап 5), а не в `ru.json`.
 - **Что показать (минимум):**
   - сценарии 1–3 из §22;
+  - сбой справочника ТН ВЭД (`error.tnved_unavailable`, §14.8);
   - запрет вывоза (рис-сырец → Китай);
   - квота (пшеница → Китай);
   - устаревший код (йогурт, код до 2022 г.);

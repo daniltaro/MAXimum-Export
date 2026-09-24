@@ -24,6 +24,7 @@ const (
 	aManual    = "manual"
 	aSearch    = "search"
 	aRetryCode = "retrycode"
+	aRetry     = "retry"
 	aSkipW     = "skipw"
 	aSuggestW  = "sugw"
 	aKg        = "kg"

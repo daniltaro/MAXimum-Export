@@ -61,16 +61,26 @@ func (b *Bot) countryText(s *Session, text string) []Message {
 	case m.Exact:
 		return b.setCountry(s, m.Country.ID)
 	default:
-		s.enter(scrCountryConfirm)
-		s.pendingCountry = m.Country.ID
-		return []Message{{
-			Text: texts.T("country.confirm", "input", engine.ClipInput(text, service.MaxInputEcho), "country", m.Country.Name),
-			Buttons: [][]Button{
-				row(texts.T("btn.country_yes", "country", m.Country.Name), s.step(aYes)),
-				row(texts.T("btn.country_no"), s.step(aNo)),
-			},
-		}}
+		s.pendingInput = engine.ClipInput(text, service.MaxInputEcho)
+		return b.confirmCountry(s, m.Country.ID)
 	}
+}
+
+// confirmCountry — «Вы указали "КНР". Это Китай? Подтвердите.» (ТЗ §15, экран 2).
+func (b *Bot) confirmCountry(s *Session, id string) []Message {
+	c := b.svc.Engine.Cat.Country(id)
+	if c == nil {
+		return b.showCountry(s)
+	}
+	s.enter(scrCountryConfirm)
+	s.pendingCountry = c.ID
+	return []Message{{
+		Text: texts.T("country.confirm", "input", s.pendingInput, "country", c.Name),
+		Buttons: [][]Button{
+			row(texts.T("btn.country_yes", "country", c.Name), s.step(aYes)),
+			row(texts.T("btn.country_no"), s.step(aNo)),
+		},
+	}}
 }
 
 // setCountry — страна выбрана: «✅ Страна: 🇨🇳 Китай (Третьи страны)» и следующий шаг.

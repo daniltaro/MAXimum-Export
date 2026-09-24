@@ -43,6 +43,11 @@ func (b *Bot) productAction(s *Session, p parsed) []Message {
 		return b.pickCode(s, s.d.Candidates[i], s.screen == scrCodeManual, "")
 	case aManual, aRetryCode:
 		return b.showCodeManual(s)
+	case aRetry: // «Повторить запрос» при недоступном справочнике
+		if s.screen == scrCodeManual {
+			return b.showCodeManual(s)
+		}
+		return b.showProduct(s)
 	case aSearch:
 		return b.showProduct(s)
 	case aBack:
@@ -58,11 +63,25 @@ func (b *Bot) productAction(s *Session, p parsed) []Message {
 	return b.render(s)
 }
 
+// tnvedUnavailable — демо-режим ведущего: справочник ТН ВЭД недоступен (ТЗ §14.8).
+func (b *Bot) tnvedUnavailable(s *Session, manual bool) []Message {
+	rows := [][]Button{row(texts.T("btn.retry"), s.step(aRetry))}
+	if !manual {
+		rows = append(rows, row(texts.T("btn.manual_code"), s.step(aManual)))
+	}
+	rows = append(rows, row(texts.T("btn.back"), s.step(aBack)))
+	return []Message{{Text: texts.T("error.tnved_unavailable"), Buttons: rows}}
+}
+
 // productText — пользователь написал название товара. Похожий на код текст («1701 12 100 0»)
 // обрабатывается как ручной ввод кода.
 func (b *Bot) productText(s *Session, text string) []Message {
 	if engine.LooksLikeCode(text) {
 		return b.codeText(s, text)
+	}
+	if s.demo.TnvedDown {
+		s.enter(scrProduct)
+		return b.tnvedUnavailable(s, false)
 	}
 	s.d.Query = text
 	res := b.svc.Search(text)
@@ -116,6 +135,11 @@ func (b *Bot) redrawCodes(s *Session) []Message {
 
 // codeText — ручной ввод кода: проверка по справочнику (ТЗ §12).
 func (b *Bot) codeText(s *Session, text string) []Message {
+	if s.demo.TnvedDown {
+		manual := s.screen == scrCodeManual
+		s.enter(scrCodeManual)
+		return b.tnvedUnavailable(s, manual)
+	}
 	c := b.svc.CheckCode(text)
 	code := engine.FormatCode(c.Digits)
 	s.enter(scrCodeManual)

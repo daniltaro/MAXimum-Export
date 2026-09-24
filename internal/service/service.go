@@ -119,12 +119,14 @@ type Demo struct {
 	RateJumpPct float64 // курс изменился на столько % с прошлого расчёта
 	ProfileDown bool    // профиль требований страны недоступен
 	DataStale   bool    // данные могли устареть
+	TnvedDown   bool    // справочник ТН ВЭД недоступен (проверяется в диалоге, не в расчёте)
 }
 
 // CalcRequest — данные для расчёта (экраны 2–4).
 type CalcRequest struct {
 	Country             string
 	Code                string
+	ReplacedFrom        string // устаревший код, который ввёл пользователь (расчёт — по новому)
 	ProductQuery        string // что пользователь писал в поиске — для проверки соответствия кода
 	ManualCode          bool
 	Quantity            int64
@@ -153,6 +155,7 @@ func (s *Service) Calculate(req CalcRequest) (*store.Calc, error) {
 		ShipDate: req.ShipDate, UnitWeightConfirmed: req.UnitWeightConfirmed,
 	}
 
+	in.ReplacedFrom = req.ReplacedFrom
 	switch c := e.CheckCode(req.Code, now); c.Status {
 	case engine.CodeOK:
 		in.Code = c.Product.Code

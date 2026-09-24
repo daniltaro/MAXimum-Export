@@ -43,15 +43,19 @@ func main() {
 	svc := service.New(data.MustLoad(), rates)
 
 	// Чат-бот MAX: получает сообщения через long polling — белый IP и домен не нужны.
+	botDone := make(chan struct{})
+	close(botDone) // бот не запущен — ждать нечего
 	if cfg.BotToken != "" {
 		bot := flow.New(svc)
 		adapter, err := maxbot.New(cfg.BotToken, bot)
 		if err != nil {
 			log.Fatalf("MAX: %v", err)
 		}
+		botDone = make(chan struct{})
 		go func() {
+			defer close(botDone)
 			if err := adapter.Run(ctx); err != nil {
-				log.Printf("MAX: бот остановлен: %v (проверьте BOT_TOKEN)", err)
+				log.Printf("MAX: бот остановлен: %v", err)
 			}
 		}()
 	} else {
@@ -76,7 +80,9 @@ func main() {
 
 	<-ctx.Done() // Ctrl+C или docker stop
 	log.Println("остановка…")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)
+	<-botDone // даём боту дописать начатые ответы пользователям
+	log.Println("остановлено")
 }

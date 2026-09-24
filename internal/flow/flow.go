@@ -61,12 +61,21 @@ func (b *Bot) route(s *Session, in Input) []Message {
 	if strings.HasPrefix(text, "/") {
 		return b.command(s, text)
 	}
-	limit := MaxTextLen
-	if s.screen == scrAsk || s.screen == scrResult {
-		limit = MaxQuestionLen
+	// На экране результата, в вопросах и на «Альтернативных рынках» текст — это вопрос
+	// по расчёту: у него свой лимит и свои сообщения об ошибке, а экран не сбрасывается.
+	if s.screen == scrResult || s.screen == scrAsk || s.screen == scrAlt {
+		switch {
+		case utf8.RuneCountInString(text) > MaxQuestionLen:
+			return []Message{{Text: texts.T("ask.too_long", "limit", engine.FormatInt(MaxQuestionLen))}}
+		case engine.DetectPII(text) != "":
+			return []Message{{Text: texts.T("error.pii", "kind", engine.DetectPII(text))}}
+		case text == "":
+			return b.render(s)
+		}
+		return b.askText(s, text)
 	}
-	if utf8.RuneCountInString(text) > limit {
-		return notice(texts.T("error.too_long", "limit", engine.FormatInt(int64(limit))), b.render(s))
+	if utf8.RuneCountInString(text) > MaxTextLen {
+		return notice(texts.T("error.too_long", "limit", engine.FormatInt(MaxTextLen)), b.render(s))
 	}
 	// ТЗ §17: персональные данные бот не принимает и не сохраняет.
 	if kind := engine.DetectPII(text); kind != "" {
@@ -91,8 +100,6 @@ func (b *Bot) route(s *Session, in Input) []Message {
 		return b.weightText(s, text)
 	case scrDate:
 		return b.dateText(s, text)
-	case scrResult, scrAsk:
-		return b.askText(s, text) // на экране результата текст — это вопрос по расчёту
 	default: // шаг 4 из 4, выбор поля, справка, режим ведущего — ждём кнопку
 		return notice(texts.T("error.use_buttons"), b.render(s))
 	}
@@ -137,7 +144,7 @@ func (b *Bot) routeAction(s *Session, payload string) []Message {
 		return b.weightAction(s, p)
 	case scrReview, scrDate, scrEdit:
 		return b.reviewAction(s, p)
-	case scrHelp:
+	case scrHelp, scrDemo:
 		return b.helpAction(s, p)
 	default:
 		return b.render(s)
@@ -170,7 +177,7 @@ func (b *Bot) globalAction(s *Session, p parsed) []Message {
 // render — показать текущий экран заново (после ошибки, устаревшей кнопки, из справки).
 func (b *Bot) render(s *Session) []Message {
 	switch s.screen {
-	case scrCountry, scrCountryConfirm:
+	case scrCountry:
 		return b.showCountry(s)
 	case scrProduct, scrCodeManual:
 		if len(s.d.Candidates) > 0 {
@@ -182,11 +189,26 @@ func (b *Bot) render(s *Session) []Message {
 		return b.showProduct(s)
 	case scrQty:
 		return b.showQty(s)
-	case scrWeight, scrWeightCheck:
+	case scrWeight:
 		return b.showWeight(s)
-	case scrReview, scrDate, scrEdit:
+	case scrCountryConfirm:
+		return b.confirmCountry(s, s.pendingCountry)
+	case scrWeightCheck:
+		return b.acceptWeight(s, s.pendingRawKg, s.pendingNetKg, true)
+	case scrReview:
 		return b.showReview(s)
-	case scrResult, scrAlt, scrAsk:
+	case scrDate:
+		return b.showDate(s)
+	case scrEdit:
+		return b.showEdit(s)
+	case scrAsk:
+		return b.showAsk(s, s.calcID)
+	case scrAlt:
+		if c, err := b.svc.Get(s.calcID); err == nil {
+			return b.showAlt(s, c)
+		}
+		return b.showResultCard(s, s.calcID)
+	case scrResult:
 		return b.showResultCard(s, s.calcID)
 	case scrHelp:
 		return b.showHelp(s)

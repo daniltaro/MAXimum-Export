@@ -80,6 +80,12 @@ func (b *Bot) DemoScenarios() []DemoScenario {
 			calcDemo(draft{Country: "cn", Code: "1205109000", Qty: 100, WeightKg: 100000}, service.Demo{RateFail: true})},
 		{"⚠️ Скачок курса", "Рапс → Китай: курс евро вырос на 5 % с прошлого расчёта",
 			calcDemo(draft{Country: "cn", Code: "1205109000", Qty: 100, WeightKg: 100000}, service.Demo{RateJumpPct: 5})},
+		{"⚠️ Сбой справочника", "Справочник ТН ВЭД недоступен: бот не может проверить код (§14.8)",
+			func(b *Bot, s *Session) []Message {
+				s.d, s.editing = draft{Country: "cn"}, false
+				s.demo = service.Demo{TnvedDown: true}
+				return b.showProduct(s)
+			}},
 		{"⚠️ Профиль недоступен", "Сахар → Китай: профиль требований страны недоступен",
 			calcDemo(draft{Country: "cn", Code: "1701121000", Qty: 5000, WeightKg: 250000}, service.Demo{ProfileDown: true})},
 		{"⚠️ Данные устарели", "Сахар → Китай: могли вступить в силу новые решения",
@@ -97,6 +103,9 @@ func (b *Bot) DemoScenarios() []DemoScenario {
 
 // showDemo — список сценариев.
 func (b *Bot) showDemo(s *Session) []Message {
+	if s.screen != scrDemo {
+		s.returnTo = s.screen
+	}
 	s.enter(scrDemo)
 	text := lines("**"+texts.T("demo.title")+"**", texts.T("demo.intro"))
 	var rows [][]Button
@@ -104,7 +113,7 @@ func (b *Bot) showDemo(s *Session) []Message {
 		text += "\n" + sc.Title + " — " + sc.About
 		rows = append(rows, row(sc.Title, global(gDemoRun, strconv.Itoa(i))))
 	}
-	rows = append(rows, row(texts.T("btn.back"), global(gStart)))
+	rows = append(rows, row(texts.T("btn.back"), s.step(aBack)))
 	return []Message{{Text: text, Buttons: rows}}
 }
 

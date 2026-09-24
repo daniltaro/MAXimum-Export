@@ -15,7 +15,7 @@ import (
 // showStart — приветствие или «С возвращением!», если в памяти есть прошлый расчёт.
 func (b *Bot) showStart(s *Session) []Message {
 	s.enter(scrStart)
-	s.editing = false
+	s.editing, s.demo = false, service.Demo{} // демо-режимы ведущего живут только внутри /demo
 
 	if last, err := b.svc.Get(s.lastID); err == nil {
 		r := last.Result
@@ -76,6 +76,7 @@ func (b *Bot) repeat(s *Session) []Message {
 		return notice(texts.T("error.calc_not_found"), b.newCalc(s))
 	}
 	b.loadDraft(s, last.Result)
+	s.demo = service.Demo{}
 	if !s.d.ShipDate.IsZero() && engine.Day(s.d.ShipDate).Before(engine.Day(b.svc.Now())) {
 		s.d.ShipDate = time.Time{} // дата отгрузки уже прошла — сбрасываем
 	}

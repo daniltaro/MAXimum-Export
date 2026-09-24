@@ -60,6 +60,7 @@ type Session struct {
 	d      draft
 
 	pendingCountry string  // страна, которую нужно подтвердить
+	pendingInput   string  // как пользователь её написал («КНР»)
 	pendingRawKg   float64 // вес, про который спросили «кг или тонны?»
 	pendingNetKg   float64
 

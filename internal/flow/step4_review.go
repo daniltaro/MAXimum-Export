@@ -135,7 +135,8 @@ func (b *Bot) editField(s *Session, field string) []Message {
 // затем показывается Экран 5. Ошибка в данных — сообщение и возврат к нужному шагу.
 func (b *Bot) calculate(s *Session) []Message {
 	c, err := b.svc.Calculate(service.CalcRequest{
-		Country: s.d.Country, Code: s.d.Code, ProductQuery: s.d.Query, ManualCode: s.d.ManualCode,
+		Country: s.d.Country, Code: s.d.Code, ReplacedFrom: s.d.ReplacedFrom,
+		ProductQuery: s.d.Query, ManualCode: s.d.ManualCode,
 		Quantity: s.d.Qty, UnitWord: s.d.UnitWord, WeightKg: s.d.WeightKg, NetKg: s.d.NetKg,
 		ShipDate: s.d.ShipDate, UnitWeightConfirmed: s.d.UnitWeightConfirmed,
 		PreviousID: s.lastID, Demo: s.demo,

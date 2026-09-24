@@ -76,8 +76,14 @@ func (b *Bot) qtyText(s *Session, text string) []Message {
 
 func (b *Bot) showWeight(s *Session) []Message {
 	s.enter(scrWeight)
-	var parts []string
+	// Заголовок шага и сводка: экран веса часто открывается сам по себе — из «Назад»,
+	// «Изменить данные» или после нетипичного веса (ТЗ §15, §22, сценарий 3).
+	parts := []string{"**" + texts.T("qty.title") + "**", b.summary(s),
+		texts.T("qty.accepted", "n", engine.FormatInt(s.d.Qty), "unit", b.unitFor(s, s.d.Qty)), ""}
 	var rows [][]Button
+	if s.d.WeightKg > 0 {
+		parts = append(parts, texts.T("weight.accepted", "weight", engine.FormatKg(s.d.WeightKg)), "")
+	}
 	if s.d.PerUnitKg > 0 { // пользователь написал «5000 мешков по 50 кг»
 		kg := float64(s.d.Qty) * s.d.PerUnitKg
 		args := []string{"n", engine.FormatInt(s.d.Qty), "per_unit", engine.FormatNum(s.d.PerUnitKg), "kg", engine.FormatNum(kg)}
@@ -175,7 +181,9 @@ func (b *Bot) recheckWeight(s *Session) []Message {
 	if s.d.WeightKg <= 0 {
 		return b.showReview(s)
 	}
-	return b.acceptWeight(s, s.d.WeightKg, s.d.NetKg, s.d.WeightExplicit)
+	// Вес пользователь сейчас не вводил, поэтому спрашиваем только «всё верно?»,
+	// а не «кг или тонны?» — одинаково и после правки на шаге 4, и после «Изменить данные».
+	return b.acceptWeight(s, s.d.WeightKg, s.d.NetKg, true)
 }
 
 // tonnesWord — «тонна / тонны / тонн» для числа; для дробных — «тонны» (0,5 тонны).
