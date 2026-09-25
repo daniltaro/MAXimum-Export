@@ -3,7 +3,7 @@
 #   docker compose up --build
 #
 # Поднимается одна программа: чат-бот MAX (если в .env задан BOT_TOKEN) и HTTP API
-# мини-приложения на http://localhost:8080. Остановить — Ctrl+C или docker compose down.
+# на http://127.0.0.1:8080. Остановить — Ctrl+C или docker compose down.
 services:
   app:
     build: .

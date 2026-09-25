@@ -1,4 +1,4 @@
-// Программа MAXimum Export: чат-бот MAX и HTTP API для мини-приложения в одной программе.
+// Программа MAXimum Export: чат-бот MAX и служебный HTTP API в одной программе.
 //
 //	go run ./cmd/app          # API: http://localhost:8080/api/v1/meta
 //	                          # бот MAX запускается, если в .env задан BOT_TOKEN
