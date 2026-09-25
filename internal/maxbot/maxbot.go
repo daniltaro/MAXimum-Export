@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	maxapi "github.com/max-messenger/max-bot-api-client-go/v2"
 	"github.com/max-messenger/max-bot-api-client-go/v2/model"
@@ -34,6 +35,11 @@ const DrainTimeout = 10 * time.Second
 
 // SendRetries — сколько раз повторить отправку при временной ошибке MAX (лимит, 5xx, сеть).
 const SendRetries = 3
+
+// MaxTextLen — предел длины одного сообщения MAX. Отчёт бот режет сам (report.ChatLimit),
+// это страховка для остальных экранов: сообщение длиннее лимита MAX отклоняет целиком,
+// и пользователь не увидел бы ничего.
+const MaxTextLen = 4000
 
 // Adapter — бот MAX.
 type Adapter struct {
@@ -240,7 +246,7 @@ func userOf(u model.Update) int64 {
 // send отправляет сообщения диалога с паузой SendGap и повторяет временные ошибки:
 // потерянная часть отчёта выглядела бы для пользователя как пропавший текст.
 func (a *Adapter) send(ctx context.Context, chat, user int64, msgs []flow.Message) {
-	for _, m := range msgs {
+	for _, m := range split(msgs) {
 		out := a.build(ctx, chat, user, m)
 		err := a.sendWithRetry(ctx, chat, out)
 		if err == nil {
@@ -260,6 +266,82 @@ func (a *Adapter) send(ctx context.Context, chat, user int64, msgs []flow.Messag
 			log.Printf("MAX: сообщение не отправлено: %v", cleanErr(err))
 		}
 	}
+}
+
+// split режет слишком длинные сообщения по строкам: кнопки и файл остаются у последней
+// части, чтобы пользователь не потерял ни текст, ни кнопки.
+func split(msgs []flow.Message) []flow.Message {
+	var out []flow.Message
+	for _, m := range msgs {
+		parts := splitText(m.Text)
+		for i, text := range parts {
+			part := flow.Message{Text: text}
+			if i == len(parts)-1 { // кнопки и файл — к последней части
+				part.Buttons, part.File = m.Buttons, m.File
+			}
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+// splitText делит текст на части не длиннее MaxTextLen символов в том виде, в котором
+// его получит MAX (после toHTML). Режем по строкам, а слишком длинную строку — по символам.
+func splitText(text string) []string {
+	if htmlLen(text) <= MaxTextLen {
+		return []string{text}
+	}
+	var parts []string
+	cur := ""
+	flush := func() {
+		if cur != "" {
+			parts = append(parts, cur)
+			cur = ""
+		}
+	}
+	for _, line := range strings.Split(text, "\n") {
+		for htmlLen(line) > MaxTextLen { // одна строка длиннее лимита — режем по символам
+			flush()
+			head, tail := cutRunes(line, MaxTextLen)
+			parts = append(parts, head)
+			line = tail
+		}
+		switch {
+		case cur == "":
+			cur = line
+		case htmlLen(cur)+1+htmlLen(line) <= MaxTextLen:
+			cur += "\n" + line
+		default:
+			flush()
+			cur = line
+		}
+	}
+	flush()
+	return parts
+}
+
+// htmlLen — длина строки в символах после toHTML: экранирование удлиняет текст.
+func htmlLen(s string) int { return utf8.RuneCountInString(toHTML(s)) }
+
+// cutRunes отрезает от строки начало длиной не больше n символов после toHTML.
+func cutRunes(s string, n int) (head, tail string) {
+	for i := range s {
+		if htmlLen(s[:i]) > n {
+			return s[:prevRune(s, i)], s[prevRune(s, i):]
+		}
+	}
+	return s, ""
+}
+
+// prevRune — начало предыдущего символа: чтобы не разрезать букву пополам.
+func prevRune(s string, i int) int {
+	for i > 0 {
+		i--
+		if utf8.RuneStart(s[i]) {
+			return i
+		}
+	}
+	return 0
 }
 
 // build собирает сообщение MAX: текст, кнопки и, если есть, файл-вложение.
