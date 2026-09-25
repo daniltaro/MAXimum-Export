@@ -65,9 +65,17 @@ PLUGINS=/usr/local/lib/docker/cli-plugins
 
 # Ждём, пока автообновление Ubuntu отпустит apt: без этого установка падает с
 # «Could not get lock /var/lib/dpkg/lock-frontend».
+apt_free() { # свободен ли dpkg? fuser есть не на каждом образе, тогда спрашиваем сам apt
+    if command -v fuser >/dev/null 2>&1; then
+        ! fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1
+    else
+        apt-get check >/dev/null 2>&1
+    fi
+}
+
 wait_apt() {
     for _ in $(seq 60); do
-        if ! fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; then
+        if apt_free; then
             return 0
         fi
         echo "   жду, пока Ubuntu закончит автообновление…"
@@ -134,6 +142,25 @@ if ! docker buildx version >/dev/null 2>&1; then
         "https://github.com/docker/buildx/releases/download/$BUILDX_VERSION/buildx-$BUILDX_VERSION.linux-$BUILDX_ARCH" \
         || install_from_apt
 fi
+
+# 5. Образы для сборки: из России Docker Hub иногда недоступен — тогда включаем зеркало.
+#    Заодно прогреваем кэш, чтобы сборка не ждала загрузку.
+if ! timeout 180 docker pull -q golang:1.24-alpine >/dev/null 2>&1; then
+    echo "   Docker Hub недоступен напрямую"
+    if [ -e /etc/docker/daemon.json ]; then
+        echo "   на сервере уже есть /etc/docker/daemon.json — добавьте в него зеркало сами:" >&2
+        echo '     "registry-mirrors": ["https://mirror.gcr.io"]' >&2
+        echo "   затем: systemctl restart docker и повторите разворачивание" >&2
+        exit 1
+    fi
+    echo "   включаю зеркало mirror.gcr.io в /etc/docker/daemon.json"
+    mkdir -p /etc/docker
+    printf '{\n  "registry-mirrors": ["https://mirror.gcr.io"]\n}\n' > /etc/docker/daemon.json
+    systemctl restart docker
+    sleep 3
+    timeout 300 docker pull -q golang:1.24-alpine >/dev/null
+fi
+timeout 300 docker pull -q alpine:3.20 >/dev/null
 
 echo "   $(docker --version)"
 echo "   $(docker compose version)"
