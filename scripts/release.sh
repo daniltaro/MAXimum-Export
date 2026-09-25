@@ -24,11 +24,12 @@ NAME="maximum-export-$HASH.tar.gz"
 mkdir -p dist
 git archive --format=tar.gz --prefix="maximum-export-$HASH/" -o "dist/$NAME" HEAD
 
-# shasum есть в macOS, sha256sum — в Linux.
+# Сумма считается от корня проекта, с путём dist/... — тогда проверка запускается
+# оттуда же, откуда собирали. shasum есть в macOS, sha256sum — в Linux.
 if command -v shasum >/dev/null; then
-    (cd dist && shasum -a 256 "$NAME" > "$NAME.sha256")
+    shasum -a 256 "dist/$NAME" > "dist/$NAME.sha256"
 else
-    (cd dist && sha256sum "$NAME" > "$NAME.sha256")
+    sha256sum "dist/$NAME" > "dist/$NAME.sha256"
 fi
 
 echo
