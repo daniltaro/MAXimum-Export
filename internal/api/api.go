@@ -104,7 +104,7 @@ func (s *Server) meta(w http.ResponseWriter, r *http.Request) {
 		"data_as_of": engine.FormatDate(asOf),
 		"rates":      RatesDTO{Source: rates.Source, Date: engine.FormatDate(rates.Date), Failed: rates.Failed, Values: rates.Values},
 		"disclaimer": report.Disclaimer,
-		"training":   true, // все данные учебные (ТЗ §21)
+		"training":   true, // весь справочный набор учебный, не для реальных сделок
 	})
 }
 
@@ -315,7 +315,7 @@ func writeError(w http.ResponseWriter, status int, code, field, msg string) {
 	writeJSON(w, status, ErrorDTO{Error: ErrorBody{Code: code, Field: field, Message: msg}})
 }
 
-// checkText проверяет текстовое поле: длина и отсутствие персональных данных (ТЗ §17).
+// checkText проверяет текстовое поле: длина и отсутствие персональных данных.
 // При ошибке сам отвечает клиенту и возвращает false.
 func checkText(w http.ResponseWriter, field, value string, limit int) bool {
 	if len([]rune(value)) > limit {

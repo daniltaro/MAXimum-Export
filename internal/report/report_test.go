@@ -18,7 +18,7 @@ func calc(t *testing.T, in engine.Input) Report {
 	return Build(e.Calculate(in, engine.Env{Now: now, Rates: engine.Training(now)}))
 }
 
-// ТЗ §15 (экран 5) и §22, сценарий 1: все 7 блоков в фиксированном порядке + дисклеймер.
+// Отчёт по сахару в Китай: все блоки выводятся в фиксированном порядке, с дисклеймером в конце.
 func TestChinaReportBlocks(t *testing.T) {
 	rep := calc(t, engine.Input{Country: "cn", Code: "1701121000", Qty: 5000, UnitWord: "мешков", WeightKg: 250000})
 	want := []string{BParams, BPackaging, BProduct, BLabeling, BDocuments, BLab, BDuty, BRoles, BWarnings}
@@ -60,7 +60,7 @@ func TestChinaReportBlocks(t *testing.T) {
 	}
 }
 
-// ТЗ §22, сценарий 2: для ЕАЭС пошлина не применяется, курс не нужен, статформа.
+// Поставка внутри ЕАЭС: пошлины нет, курс валюты не нужен, вместо декларации — статформа.
 func TestEAEUReport(t *testing.T) {
 	rep := calc(t, engine.Input{Country: "am", Code: "0409000000", Qty: 200, WeightKg: 4000})
 	duty, _ := rep.Block(BDuty)
@@ -100,7 +100,7 @@ func TestAllCombinations(t *testing.T) {
 					t.Errorf("%s/%s: часть длиннее %d", c.ID, p.Code, ChatLimit)
 				}
 			}
-			// «Скопировать отчёт» — всегда одно сообщение (ТЗ §15), с дисклеймером.
+			// «Скопировать отчёт» — всегда одно сообщение, с дисклеймером.
 			if s := rep.Summary(CopyLimit); utf8.RuneCountInString(s) > CopyLimit || !strings.Contains(s, "демонстрационный прототип") {
 				t.Errorf("%s/%s: сводка длиннее %d символов или без дисклеймера", c.ID, p.Code, CopyLimit)
 			}

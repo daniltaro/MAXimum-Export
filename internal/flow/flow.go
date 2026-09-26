@@ -77,7 +77,8 @@ func (b *Bot) route(s *Session, in Input) []Message {
 	if utf8.RuneCountInString(text) > MaxTextLen {
 		return notice(texts.T("error.too_long", "limit", engine.FormatInt(MaxTextLen)), b.render(s))
 	}
-	// ТЗ §17: персональные данные бот не принимает и не сохраняет.
+	// Персональные данные бот не принимает и не сохраняет: паспорт, ИНН, телефон
+	// и т. п. отсекаются до обработки ввода.
 	if kind := engine.DetectPII(text); kind != "" {
 		return notice(texts.T("error.pii", "kind", kind), b.render(s))
 	}

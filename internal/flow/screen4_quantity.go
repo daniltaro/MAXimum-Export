@@ -6,10 +6,11 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Экран 4. Шаг 3 из 4 — количество и вес (ТЗ §15, экран 4; §22, сценарий 3)
+// Экран 4. Шаг 3 из 4 — количество и вес партии
 // ---------------------------------------------------------------------------
 
-// summary — «Страна: 🇨🇳 Китай · Продукт: … · Код: …» под заголовком шага (ТЗ §15, экран 4).
+// summary — «Страна: 🇨🇳 Китай · Продукт: … · Код: …» под заголовком шага: пользователь
+// видит уже введённое и не теряет контекст.
 func (b *Bot) summary(s *Session) string {
 	c := b.svc.Engine.Cat.Country(s.d.Country)
 	p := b.svc.Engine.Cat.Product(s.d.Code)
@@ -77,7 +78,7 @@ func (b *Bot) qtyText(s *Session, text string) []Message {
 func (b *Bot) showWeight(s *Session) []Message {
 	s.enter(scrWeight)
 	// Заголовок шага и сводка: экран веса часто открывается сам по себе — из «Назад»,
-	// «Изменить данные» или после нетипичного веса (ТЗ §15, §22, сценарий 3).
+	// «Изменить данные» или возврат после нетипичного веса: количество и код сохранены.
 	parts := []string{"**" + texts.T("qty.title") + "**", b.summary(s),
 		texts.T("qty.accepted", "n", engine.FormatInt(s.d.Qty), "unit", b.unitFor(s, s.d.Qty)), ""}
 	var rows [][]Button
@@ -107,7 +108,7 @@ func (b *Bot) weightAction(s *Session, p parsed) []Message {
 		return b.saveWeight(s, s.pendingRawKg, s.pendingNetKg)
 	case aTonnes: // «5 тонн (5 000 кг)»
 		return b.acceptWeight(s, s.pendingRawKg*1000, s.pendingNetKg*1000, true)
-	case aWeightEd: // «✏️ Изменить данные»: страна, код и количество сохраняются (§22)
+	case aWeightEd: // «✏️ Изменить данные»: страна, код и количество сохраняются
 		return b.showWeight(s)
 	case aBack:
 		if s.screen == scrWeightCheck {
@@ -129,7 +130,8 @@ func (b *Bot) weightText(s *Session, text string) []Message {
 	return b.acceptWeight(s, w.Kg, w.NetKg, w.Explicit)
 }
 
-// acceptWeight проверяет вес одной единицы (ТЗ §14.4, §14.9; §22, сценарий 3).
+// acceptWeight проверяет вес одной единицы: нетипичный вес обычно значит, что вместо
+// килограммов ввели тонны или перепутали количество.
 // Типичный вес → шаг 4 из 4. Нетипичный → предупреждение и, если похоже на тонны,
 // вопрос «Вы указали 5 — это 5 кг или 5 тонн?».
 func (b *Bot) acceptWeight(s *Session, kg, net float64, explicit bool) []Message {

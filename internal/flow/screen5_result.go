@@ -13,7 +13,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Экран 5. Результат расчёта (ТЗ §15, экран 5; docs/screens.md, «Экран 5»)
+// Экран 5. Результат расчёта (docs/screens.md, «Экран 5»)
 // ---------------------------------------------------------------------------
 
 // showResult — отчёт частями («1/2», «2/2»), сразу за ним файл .txt и кнопки результата.
@@ -53,7 +53,7 @@ func (b *Bot) showResultCard(s *Session, id string) []Message {
 	return []Message{{Text: text, Buttons: b.resultButtons(c)}}
 }
 
-// resultButtons — кнопки результата (ТЗ §15, экран 5). Они привязаны к расчёту, а не к шагу:
+// resultButtons — кнопки под результатом. Они привязаны к расчёту, а не к шагу:
 // «Скопировать» под старым отчётом скопирует именно его.
 func (b *Bot) resultButtons(c *store.Calc) [][]Button {
 	rows := [][]Button{
@@ -88,7 +88,7 @@ func (b *Bot) resultAction(s *Session, p parsed) []Message {
 	}
 	switch p.action {
 	case gCopy:
-		// Краткая сводка — всегда одно сообщение (ТЗ §15: «единым текстовым сообщением»).
+		// Краткая сводка — всегда одно сообщение: её копируют целиком.
 		s.enter(scrResult)
 		s.calcID = id
 		return []Message{
@@ -104,7 +104,8 @@ func (b *Bot) resultAction(s *Session, p parsed) []Message {
 			Buttons: b.resultButtons(c),
 		}}
 	case gEdit:
-		// «✏️ Изменить данные»: данные расчёта в черновике, выбор поля (ТЗ §15, §22: без потери страны и кода).
+		// «✏️ Изменить данные»: данные расчёта возвращаются в черновик, пользователь выбирает поле —
+		// страна и код при этом не теряются.
 		b.loadDraft(s, c.Result)
 		s.demo = service.Demo{}
 		return b.showEdit(s)

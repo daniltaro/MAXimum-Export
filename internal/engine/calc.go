@@ -7,7 +7,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Полный расчёт: входные данные → требования + пошлина + предупреждения (ТЗ §12)
+// Полный расчёт: входные данные → требования + пошлина + предупреждения
 // ---------------------------------------------------------------------------
 
 // Input — всё, что пользователь ввёл на экранах 2–4.
@@ -28,7 +28,7 @@ type Input struct {
 	UnitWeightConfirmed bool // пользователь подтвердил нетипичный вес единицы («Всё верно»)
 }
 
-// Flags — демо-режимы для ведущего (ТЗ §21: «показать 5 нестандартных сценариев»).
+// Flags — демо-режимы: воспроизводят редкие сбои, которых не дождёшься на живых данных.
 type Flags struct {
 	ProfileDown bool // «справочник требований страны недоступен»
 	DataStale   bool // «вступило в силу новое решение, ещё не загруженное в базу»
@@ -76,7 +76,7 @@ func (e *Engine) Calculate(in Input, env Env) Result {
 	res.Product = e.Cat.Product(in.Code)
 	res.DataAsOf, _ = ParseISODate(e.Cat.Measures.DataAsOf)
 
-	// Код будет заменён до даты отгрузки — считаем по новому коду (ТЗ §14.1).
+	// Код будет заменён до даты отгрузки — считаем по новому коду.
 	if p := res.Product; p != nil && p.ReplacedBy != nil && !in.ShipDate.IsZero() {
 		if since, ok := ParseISODate(p.ReplacedBy.Since); ok && !Day(in.ShipDate).Before(since) {
 			if np := e.Cat.Product(p.ReplacedBy.Code); np != nil {
@@ -85,7 +85,7 @@ func (e *Engine) Calculate(in Input, env Env) Result {
 		}
 	}
 
-	// Требования страны назначения (ТЗ §12: «загружает профиль требований»).
+	// Требования страны назначения: профиль под группу товара, иначе — общий профиль страны.
 	var ok bool
 	res.Req, ok = res.Country.Requirements(res.Product.Group, res.Product.Code)
 	res.ProfileFallback = !ok || env.Flags.ProfileDown

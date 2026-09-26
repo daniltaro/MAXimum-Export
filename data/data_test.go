@@ -97,7 +97,7 @@ func TestCountriesHaveAllGroups(t *testing.T) {
 		}
 		if country.Roles.Director == "" || country.Roles.Manager == "" || country.Roles.Customs == "" ||
 			country.Roles.Accountant == "" || country.Roles.ExportControl == "" {
-			t.Errorf("%s.json: заполнены не все 5 ролей (ТЗ §21)", country.ID)
+			t.Errorf("%s.json: заполнены не все 5 ролей", country.ID)
 		}
 		if country.Tax.VAT == "" || country.Tax.Declaration == "" {
 			t.Errorf("%s.json: не заполнены tax.vat или tax.declaration", country.ID)

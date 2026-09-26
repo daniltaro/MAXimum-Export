@@ -42,7 +42,7 @@ func do(t *testing.T, h http.Handler, method, path string, body any) (*httptest.
 	return rec, out
 }
 
-// Сценарий 1 (ТЗ §22) через API мини-приложения: поиск → расчёт → .txt → вопросы тренера.
+// Сценарий 1 через API мини-приложения: поиск → расчёт → .txt → вопросы по результату.
 func TestScenario1ThroughAPI(t *testing.T) {
 	h := newServer(t)
 
@@ -80,7 +80,7 @@ func TestScenario1ThroughAPI(t *testing.T) {
 		t.Errorf("скачивание .txt: %d %q", rec.Code, rec.Header().Get("Content-Disposition"))
 	}
 
-	// ТЗ §22, сценарий 1 — что проверяет тренер: «Какие сертификаты?», «Сколько пошлина?», «Сколько ждать регистрацию?»
+	// Типичные вопросы после расчёта: сертификаты, размер пошлины, срок регистрации.
 	checks := map[string]string{
 		"Какие сертификаты нужны?":   "GACC",
 		"Сколько пошлина?":           "0 ₽",

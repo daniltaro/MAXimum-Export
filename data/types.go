@@ -11,7 +11,7 @@
 // Чтобы поменять требование или ставку, достаточно отредактировать JSON — код трогать не нужно.
 // После правки запустите `go test ./data/` — тест проверит, что справочники согласованы.
 //
-// ВСЕ данные учебные (ТЗ §17, §24): они приближены к реальности на сентябрь 2026 года,
+// ВСЕ данные учебные: они приближены к реальности на сентябрь 2026 года,
 // но не являются официальной консультацией.
 package data
 
@@ -19,7 +19,7 @@ package data
 // Справочник ТН ВЭД (tnved.json)
 // ---------------------------------------------------------------------------
 
-// Origin — происхождение продукции. От него зависит вид контроля (ТЗ §22, сценарии 2 и 3):
+// Origin — происхождение продукции. От него зависит вид контроля:
 // животное → ветеринарный сертификат, растительное → фитосанитарный.
 type Origin string
 
@@ -35,7 +35,7 @@ type Product struct {
 	Code     string   `json:"code"`     // 10 цифр без пробелов: "1701121000"
 	Name     string   `json:"name"`     // наименование для отчёта: "Сахар-песок свекловичный"
 	Keywords []string `json:"keywords"` // слова, по которым пользователь ищет товар
-	Food     bool     `json:"food"`     // пищевая продукция? Бот работает только с ней (ТЗ §12)
+	Food     bool     `json:"food"`     // пищевая продукция? Бот работает только с ней
 	Category string   `json:"category"` // категория по справочнику: "Группа 17. Сахар и кондитерские изделия из сахара"
 	Group    string   `json:"group"`    // группа требований в countries/*.json: "sugar", "honey", "flour"...
 	Origin   Origin   `json:"origin"`
@@ -43,29 +43,30 @@ type Product struct {
 	Unit UnitForms `json:"unit"` // единица по умолчанию: мешок / мешка / мешков
 
 	// UnitKg — типичный вес одной единицы (мешок, коробка, бочка), кг: [мин, макс].
-	// Нужен для проверки «количество и вес не соответствуют друг другу» (ТЗ §14.4).
+	// Нужен, чтобы заметить, что количество мест и общий вес не сходятся между собой.
 	UnitKg [2]float64 `json:"unit_kg"`
 
-	// TarePct — типичная доля тары в весе брутто, %: [мин, макс] (ТЗ §14.4, брутто/нетто).
+	// TarePct — типичная доля тары в весе брутто, %: [мин, макс].
+	// По ней видно, назвал пользователь вес брутто или нетто.
 	TarePct [2]float64 `json:"tare_pct"`
 
 	// PriceRubPerT — учебная индикативная цена, ₽ за тонну. Используется для адвалорной
-	// пошлины вместо стоимости контракта: запрашивать её у пользователя нельзя (ТЗ §17).
+	// пошлины вместо стоимости контракта: цену сделки у пользователя не спрашиваем.
 	PriceRubPerT float64 `json:"price_rub_per_t"`
 
-	TempC      *TempRange   `json:"temp_c,omitempty"`      // температурный режим перевозки (ТЗ §14.6)
-	ReplacedBy *Replacement `json:"replaced_by,omitempty"` // код устарел или будет заменён (ТЗ §14.1)
+	TempC      *TempRange   `json:"temp_c,omitempty"`      // режим перевозки, если товар скоропортящийся
+	ReplacedBy *Replacement `json:"replaced_by,omitempty"` // код устарел или будет заменён — предупреждаем
 
-	// Alternatives — другие коды, по которым товар может классифицироваться (ТЗ §14.7).
+	// Alternatives — другие коды, по которым товар может классифицироваться.
 	Alternatives []string `json:"alternatives,omitempty"`
 	AltNote      string   `json:"alt_note,omitempty"` // чем отличаются варианты классификации
 
-	Components []Component `json:"components,omitempty"` // ингредиенты с особыми требованиями (ТЗ §14.7)
+	Components []Component `json:"components,omitempty"` // ингредиенты с отдельными ограничениями
 
-	// Note — пометка для отчёта. Например, у кодов из ТЗ, которых нет в действующей
+	// Note — пометка для отчёта. Например, у условных кодов, которых нет в действующей
 	// ТН ВЭД, здесь указан реальный код.
 	Note     string `json:"note,omitempty"`
-	Training bool   `json:"training,omitempty"` // запись учебная (код из ТЗ или условный пример)
+	Training bool   `json:"training,omitempty"` // запись учебная: условный код или пример
 }
 
 // UnitForms — формы слова для единицы товара: 1 мешок, 2 мешка, 5 мешков.
@@ -107,16 +108,17 @@ type Country struct {
 	FullName string   `json:"full_name"` // "Китайская Народная Республика (КНР)"
 	Flag     string   `json:"flag"`      // "🇨🇳"
 	To       string   `json:"to"`        // «в Китай» — для фраз «Экспорт в Китай»
-	EAEU     bool     `json:"eaeu"`      // член ЕАЭС → пошлин нет (ТЗ §13, сценарий 1)
-	Subtitle string   `json:"subtitle"`  // пояснение к кнопке выбора страны (экран 2)
+	EAEU     bool     `json:"eaeu"`      // член ЕАЭС → вывозной пошлины и сбора нет
+	Subtitle string   `json:"subtitle"`  // пояснение к кнопке выбора страны
 	Aliases  []string `json:"aliases"`   // как ещё можно написать страну: "кнр", "china"
 
-	Registry Registry `json:"registry"` // регистрация производителя в стране назначения (ТЗ §14.3)
+	Registry Registry `json:"registry"` // куда и как производителю вносить себя в реестр страны
 
-	// EAEUCertsRecognized — признаются ли декларации/сертификаты ЕАЭС (ТЗ §14.3).
+	// EAEUCertsRecognized — принимает ли страна декларации и сертификаты ЕАЭС
+	// или требует собственных документов.
 	EAEUCertsRecognized bool `json:"eaeu_certs_recognized"`
 
-	Authority string `json:"authority"` // где проверить актуальность требований (ТЗ §20.3)
+	Authority string `json:"authority"` // где проверить актуальность требований
 
 	Common Requirements            `json:"common"` // требования для всех групп товаров
 	Groups map[string]Requirements `json:"groups"` // требования группы — общие для всех её товаров: "sugar" → ...
@@ -128,7 +130,7 @@ type Country struct {
 
 	Tax       TaxInfo  `json:"tax"`       // НДС, декларация, сборы
 	Logistics []string `json:"logistics"` // особенности маршрута (транзит и т. п.)
-	Roles     Roles    `json:"roles"`     // подсказки для 5 ролей (ТЗ §6, §21)
+	Roles     Roles    `json:"roles"`     // по одной подсказке каждому из пяти специалистов
 }
 
 // Registry — реестр производителей страны назначения.
@@ -138,7 +140,7 @@ type Registry struct {
 	Months string `json:"months"` // ориентировочный срок: "2–6"
 }
 
-// Requirements — требования по блокам отчёта (ТЗ §15, экран 5, блоки 1–5).
+// Requirements — требования по блокам итогового отчёта.
 // Итоговые требования = common страны + группа товара + уточнение для кода (в этом порядке).
 type Requirements struct {
 	Packaging []string `json:"packaging,omitempty"` // ✅ Упаковка
@@ -148,7 +150,7 @@ type Requirements struct {
 	Lab       []string `json:"lab,omitempty"`       // 🔬 Лабораторные испытания
 	LabDays   [2]int   `json:"lab_days,omitempty"`  // срок испытаний, рабочих дней: [мин, макс]
 
-	// Registration — нужна ли регистрация производителя в реестре страны (ТЗ §14.3).
+	// Registration — нужна ли регистрация производителя в реестре страны.
 	Registration bool `json:"registration,omitempty"`
 
 	// Market — барьеры входа для директора ВЭД: ввозные пошлины, квоты, НДС страны.
@@ -161,7 +163,7 @@ type DocStatus string
 const (
 	DocRequired    DocStatus = "required"    // обязателен
 	DocConditional DocStatus = "conditional" // нужен при условии (см. Note)
-	DocNotRequired DocStatus = "no"          // не требуется (показываем явно, как в ТЗ)
+	DocNotRequired DocStatus = "no"          // не требуется (пишем явно, чтобы не искали зря)
 )
 
 // Doc — документ из чек-листа (для менеджера ВЭД: что, кто выдаёт, сколько ждать).
@@ -181,7 +183,7 @@ type TaxInfo struct {
 	DutyNote    string `json:"duty_note"`   // пояснение к пошлине (для ЕАЭС)
 }
 
-// Roles — одна строка-подсказка для каждой роли из ТЗ §6.
+// Roles — одна строка-подсказка каждому специалисту компании-экспортёра.
 type Roles struct {
 	Director      string `json:"director"`       // директор по ВЭД
 	Manager       string `json:"manager"`        // менеджер по ВЭД
@@ -219,7 +221,7 @@ type FeeLevel struct {
 	FeeRub  float64 `json:"fee_rub"`
 }
 
-// DutyType — вид экспортной пошлины (ТЗ §13, шаг 1).
+// DutyType — вид экспортной пошлины: от него зависит формула расчёта.
 type DutyType string
 
 const (
@@ -246,7 +248,7 @@ type Duty struct {
 	Training  bool     `json:"training,omitempty"`      // учебная (условная) ставка
 }
 
-// Quota — экспортная квота (ТЗ §13 шаг 3, §14.2). Действует ежегодно в период From–To
+// Quota — экспортная квота. Действует ежегодно в период From–To
 // (формат "01-02": месяц-день).
 type Quota struct {
 	Prefixes []string `json:"prefixes"`
@@ -260,7 +262,7 @@ type Quota struct {
 	Training bool     `json:"training,omitempty"`
 }
 
-// ExportBan — временный запрет вывоза из РФ (ТЗ §14.2).
+// ExportBan — временный запрет вывоза из РФ.
 type ExportBan struct {
 	Prefixes  []string `json:"prefixes"`
 	Name      string   `json:"name"`
@@ -271,7 +273,7 @@ type ExportBan struct {
 	Training  bool     `json:"training,omitempty"`
 }
 
-// ImportBan — страна назначения приостановила ввоз из РФ (ТЗ §14.2).
+// ImportBan — страна назначения приостановила ввоз из РФ.
 type ImportBan struct {
 	Country  string   `json:"country"`
 	Prefixes []string `json:"prefixes"`
@@ -282,7 +284,7 @@ type ImportBan struct {
 	Training bool     `json:"training,omitempty"`
 }
 
-// Antidumping — антидемпинговая пошлина страны назначения (ТЗ §13, шаг 3).
+// Antidumping — антидемпинговая пошлина страны назначения.
 // Платит импортёр в стране назначения, поэтому показывается справочно.
 type Antidumping struct {
 	Country  string   `json:"country"`

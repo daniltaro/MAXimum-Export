@@ -24,7 +24,7 @@ type Catalog struct {
 	byCountry map[string]*Country
 }
 
-// CountryOrder — порядок стран на экране выбора (ТЗ §15, экран 2).
+// CountryOrder — порядок стран на экране выбора.
 var CountryOrder = []string{"cn", "am", "kz"}
 
 // Load читает вшитые JSON-файлы. Ошибка означает, что справочник повреждён.
@@ -101,7 +101,7 @@ func (c *Catalog) ProductsWithPrefix(prefix string) []*Product {
 
 // Requirements собирает требования страны к товару: общие требования страны (common),
 // затем требования группы товара, затем уточнения для кода. Второе значение false —
-// профиль группы не найден: тогда остаются только общие требования (ТЗ §14.8).
+// профиль группы не найден: тогда остаются только общие требования страны.
 func (c *Country) Requirements(group, code string) (Requirements, bool) {
 	g, ok := c.Groups[group]
 	p := c.productOverride(code)

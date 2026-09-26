@@ -43,7 +43,7 @@ type ProductDTO struct {
 	UnitKg      [2]float64      `json:"typical_unit_kg"` // типичный вес единицы, кг
 	Bulk        bool            `json:"bulk"`            // насыпной/наливной груз: количество — в тоннах
 	TempC       *data.TempRange `json:"temp_c,omitempty"`
-	Training    bool            `json:"training"` // учебная запись (например, код из ТЗ)
+	Training    bool            `json:"training"` // учебная запись: такого кода нет в действующей ТН ВЭД
 	Note        string          `json:"note,omitempty"`
 }
 
@@ -207,7 +207,7 @@ type RatesDTO struct {
 	Values map[string]float64 `json:"values"`
 }
 
-// WarningDTO — предупреждение (ТЗ §14).
+// WarningDTO — одно предупреждение из блока «⚠️ Внимание».
 type WarningDTO struct {
 	Code  string `json:"code"`
 	Level string `json:"level"` // info | warn | stop
@@ -215,7 +215,7 @@ type WarningDTO struct {
 	Text  string `json:"text"`
 }
 
-// RoleDTO — подсказка для роли (ТЗ §6, §21).
+// RoleDTO — подсказка «на что смотреть» для одной роли в команде ВЭД.
 type RoleDTO struct {
 	Role  string `json:"role"` // director | manager | customs | accountant | export_control
 	Title string `json:"title"`
@@ -274,7 +274,7 @@ func calcDTO(c *store.Calc) CalcDTO {
 	}
 	dto.Documents, dto.Roles = []DocDTO{}, []RoleDTO{}
 	if r.Stop != nil {
-		return dto // экспорт запрещён: вместо требований — только stop (ТЗ §15, экран 5)
+		return dto // экспорт запрещён: вместо документов и ролей — только stop (экран 5)
 	}
 	for _, d := range r.Req.Documents {
 		dto.Documents = append(dto.Documents, DocDTO{Name: d.Name, Status: string(d.Status), Who: d.Who, Term: d.Term, Note: d.Note})

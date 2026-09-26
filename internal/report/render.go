@@ -9,8 +9,8 @@ import (
 	"maxexport/internal/engine"
 )
 
-// ChatLimit — длина одной части отчёта в чате (ТЗ §21: «при длине > 3500 символов —
-// разбивка на части»). У MAX жёсткий лимит 4000 символов на сообщение.
+// ChatLimit — длина одной части отчёта в чате: если текст длиннее, он разбивается
+// на части. У MAX жёсткий лимит 4000 символов на сообщение, берём запас на подпись «(1/2)».
 const ChatLimit = 3500
 
 // ChatParts — отчёт для чата: одна или несколько частей не длиннее limit символов.
@@ -55,8 +55,8 @@ func (rep Report) ChatParts(limit int) []string {
 	return parts
 }
 
-// CopyLimit — лимит одного сообщения MAX: сводка для «📋 Скопировать отчёт» должна в него
-// поместиться целиком (ТЗ §15: «единым текстовым сообщением»).
+// CopyLimit — лимит одного сообщения MAX: сводку для «📋 Скопировать отчёт» нельзя резать
+// на части, её копируют целиком, поэтому она обязана поместиться в одно сообщение.
 const CopyLimit = 4000
 
 // Summary — короткая сводка для кнопки «📋 Скопировать отчёт»: одно сообщение без разметки.
@@ -99,7 +99,7 @@ func (rep Report) Summary(limit int) string {
 			warns = append(warns, w.Level.Icon()+" "+w.Text)
 		}
 	}
-	tail := []string{"", "Полный отчёт — в файле .txt.", Disclaimer} // полный дисклеймер: ТЗ §16
+	tail := []string{"", "Полный отчёт — в файле .txt.", Disclaimer} // дисклеймер не сокращаем
 
 	build := func(ws []string, maxLen int) string {
 		lines := append(append([]string{}, head...), body...)
@@ -226,7 +226,7 @@ func cutAtSpace(s string, limit int) int {
 func runes(s string) int { return utf8.RuneCountInString(s) }
 
 // ---------------------------------------------------------------------------
-// Текстовый документ .txt (ТЗ §11: «отдельный текстовый документ»)
+// Текстовый документ .txt — отчёт целиком, для скачивания и пересылки
 // ---------------------------------------------------------------------------
 
 // FileName — имя файла отчёта: MAXimum-Export_CN_1701121000_2026-09-21.txt
@@ -236,8 +236,8 @@ func (rep Report) FileName() string {
 		strings.ToUpper(r.Country.ID), r.Product.Code, r.At.In(engine.MSK).Format("2006-01-02"))
 }
 
-// Text — полный отчёт для скачивания: таблица параметров, все блоки, все пометки
-// о проверке человеком (ТЗ §20) и дисклеймер.
+// Text — полный отчёт для скачивания: таблица параметров, все блоки, перечень мест,
+// где нужна проверка человеком, и дисклеймер.
 func (rep Report) Text() string {
 	r := rep.Result
 	var b strings.Builder
@@ -276,7 +276,7 @@ func (rep Report) Text() string {
 	return b.String()
 }
 
-// humanChecks — пункты ТЗ §20 с подставленными датами.
+// humanChecks — места, где на автоматический расчёт полагаться нельзя, с подставленными датами.
 func humanChecks(r engine.Result) []string {
 	asOf := engine.FormatDate(r.DataAsOf)
 	return []string{

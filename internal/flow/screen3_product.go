@@ -11,7 +11,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Экран 3. Шаг 2 из 4 — продукт и код ТН ВЭД (ТЗ §15, экран 3; docs/screens.md, «Экран 3»)
+// Экран 3. Шаг 2 из 4 — продукт и код ТН ВЭД (docs/screens.md, «Экран 3»)
 // ---------------------------------------------------------------------------
 
 // showProduct — «Шаг 2 из 4. Укажите тип продукции».
@@ -63,7 +63,8 @@ func (b *Bot) productAction(s *Session, p parsed) []Message {
 	return b.render(s)
 }
 
-// tnvedUnavailable — демо-режим ведущего: справочник ТН ВЭД недоступен (ТЗ §14.8).
+// tnvedUnavailable — демо-режим ведущего: справочник ТН ВЭД недоступен, код проверить
+// нечем — предлагаем повторить запрос или ввести код вручную.
 func (b *Bot) tnvedUnavailable(s *Session, manual bool) []Message {
 	rows := [][]Button{row(texts.T("btn.retry"), s.step(aRetry))}
 	if !manual {
@@ -133,7 +134,8 @@ func (b *Bot) redrawCodes(s *Session) []Message {
 	return b.codeList(s, items, fromSearch)
 }
 
-// codeText — ручной ввод кода: проверка по справочнику (ТЗ §12).
+// codeText — ручной ввод кода: проверка по справочнику (есть ли такой код, не заменён ли
+// он новым, пищевой ли, не введён ли только префикс).
 func (b *Bot) codeText(s *Session, text string) []Message {
 	if s.demo.TnvedDown {
 		manual := s.screen == scrCodeManual
@@ -205,7 +207,7 @@ func (b *Bot) codeButtons(s *Session, items []*data.Product, fromSearch bool) []
 	return append(rows, row(texts.T("btn.back"), s.step(aBack)))
 }
 
-// pickCode — код выбран: «✅ Код …» (+ пометка §20.1, если код подобран автоматически)
+// pickCode — код выбран: «✅ Код …» (+ пометка «определён автоматически», если код подобран поиском)
 // и шаг 3 из 4. В режиме «Изменить» — снова «Проверьте данные» (с проверкой веса единицы).
 func (b *Bot) pickCode(s *Session, code string, manual bool, replacedFrom string) []Message {
 	p := b.svc.Engine.Cat.Product(code)

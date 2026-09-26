@@ -227,7 +227,7 @@ func (a *Adapter) handle(ctx context.Context, u model.Update) {
 	}
 	msgs := a.bot.Handle(strconv.FormatInt(user, 10), in)
 	a.send(ctx, u.ChatID, user, msgs)
-	// В журнал — только тип события и время, без текста пользователя (ТЗ §17).
+	// В журнал — только тип события и время: переписку пользователя не логируем.
 	log.Printf("MAX: %s → %d сообщ. за %v", u.UpdateType, len(msgs), time.Since(start).Round(time.Millisecond))
 }
 

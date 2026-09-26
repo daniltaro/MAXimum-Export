@@ -21,7 +21,7 @@ func build(t *testing.T, in engine.Input) report.Report {
 func TestHelpArticles(t *testing.T) {
 	arts := Help()
 	if len(arts) != 6 {
-		t.Fatalf("в справке %d статей, по ТЗ §15 (экран 6) — 6", len(arts))
+		t.Fatalf("в справке %d статей, ожидалось 6", len(arts))
 	}
 	for _, a := range arts {
 		if strings.HasPrefix(a.Title, "[[") || strings.HasPrefix(a.Text, "[[") || a.Text == "" {
@@ -30,7 +30,7 @@ func TestHelpArticles(t *testing.T) {
 	}
 }
 
-// ТЗ §21: пользователь находит ответы на контрольные вопросы.
+// По вопросу своими словами должна находиться нужная тема и часть отчёта.
 func TestTopics(t *testing.T) {
 	sugar := build(t, engine.Input{Country: "cn", Code: "1701121000", Qty: 5000, WeightKg: 250000})
 	honey := build(t, engine.Input{Country: "am", Code: "0409000000", Qty: 200, WeightKg: 4000})

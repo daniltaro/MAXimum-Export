@@ -7,7 +7,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Расчёт экспортной пошлины (ТЗ §13)
+// Расчёт вывозной пошлины: вид ставки, формула расчёта, итог и таможенный сбор
 // ---------------------------------------------------------------------------
 
 // DutyLine — одна строка расчёта с формулой: «250 000 ÷ 1 000 × 25 € × 100 ₽ = 625 000 ₽».
@@ -19,7 +19,7 @@ type DutyLine struct {
 
 // DutyResult — итог расчёта пошлины для блока «💰 Таможенная пошлина».
 type DutyResult struct {
-	EAEU     bool          // страна ЕАЭС — пошлина не применяется (ТЗ §13, сценарий 1)
+	EAEU     bool          // страна ЕАЭС — вывозная пошлина не применяется
 	Record   *data.Duty    // запись из measures.json (nil для ЕАЭС)
 	Type     data.DutyType // вид ставки
 	RateText string        // ставка словами: «5 % от таможенной стоимости»
@@ -52,7 +52,7 @@ func (e *Engine) FindDuty(code string) *data.Duty {
 // CalcDuty считает пошлину. baseKg — вес для специфической ставки (0 — вес не указан).
 func (e *Engine) CalcDuty(p *data.Product, c *data.Country, baseKg float64, rates Rates) DutyResult {
 	if c.EAEU {
-		// Сценарий 1 из ТЗ §13: внутри ЕАЭС пошлин нет, курс не нужен.
+		// Внутри ЕАЭС таможенной границы нет: пошлина не возникает, курс валюты не нужен.
 		return DutyResult{EAEU: true, Type: data.DutyNone, Complete: true}
 	}
 
@@ -66,8 +66,8 @@ func (e *Engine) CalcDuty(p *data.Product, c *data.Country, baseKg float64, rate
 	tonnes := baseKg / 1000
 	hasWeight := baseKg > 0
 
-	// Адвалорная часть: процент от таможенной стоимости. Стоимость контракта спрашивать
-	// нельзя (ТЗ §17), поэтому берём учебную индикативную цену из справочника.
+	// Адвалорная часть: процент от таможенной стоимости. Цену контракта бот не спрашивает —
+	// это коммерческая тайна, — поэтому берём учебную индикативную цену из справочника.
 	adval := func() (DutyLine, bool) {
 		if !hasWeight || p.PriceRubPerT <= 0 {
 			return DutyLine{}, false
@@ -129,7 +129,7 @@ func (e *Engine) CalcDuty(p *data.Product, c *data.Country, baseKg float64, rate
 		}
 
 	case data.DutyCombined:
-		// Комбинированная ставка: считаем оба варианта и берём большую сумму (ТЗ §13, шаг 2в).
+		// Комбинированная ставка: считаем оба варианта и берём большую сумму.
 		la, okA := adval()
 		ls, okS := specific()
 		if !okA || !okS {
@@ -185,7 +185,7 @@ func rateText(d *data.Duty) string {
 	}
 }
 
-// DutyTypeName — вид ставки по-русски (ТЗ §13, шаг 1).
+// DutyTypeName — вид ставки по-русски.
 func DutyTypeName(t data.DutyType) string {
 	switch t {
 	case data.DutyAdValorem:

@@ -18,7 +18,8 @@ import (
 	"maxexport/texts"
 )
 
-// MaxSearchResults — сколько кодов показывать в списке (ТЗ §15, экран 3: «найдено более 5 кодов» → уточните).
+// MaxSearchResults — сколько кодов показывать в списке: длинный список в чате не читается,
+// поэтому при большем числе совпадений просим уточнить запрос.
 const MaxSearchResults = 5
 
 // Service — точка входа для интерфейсов.
@@ -53,7 +54,8 @@ var ErrNotFound = errors.New(texts.T("error.calc_not_found"))
 // MaxInputEcho — сколько символов из ввода пользователя повторять в сообщении об ошибке.
 const MaxInputEcho = 40
 
-// NotYetValidMessage — «код начнёт действовать с …, пока используйте …» (ТЗ §14.1).
+// NotYetValidMessage — код найден, но вступает в силу позже: подсказываем дату начала
+// действия и код, по которому нужно считать сейчас.
 func NotYetValidMessage(c engine.CodeCheck) string {
 	current := "—"
 	if c.Current != nil {
@@ -73,7 +75,7 @@ func (s *Service) Countries() []data.Country { return s.Engine.Cat.Countries }
 type SearchResult struct {
 	Items   []*data.Product
 	Total   int
-	TooMany bool // совпадений больше 5 — попросить уточнить (ТЗ §15, экран 3)
+	TooMany bool // совпадений больше MaxSearchResults — попросить уточнить запрос
 }
 
 // Search ищет коды ТН ВЭД по названию товара.
@@ -94,7 +96,8 @@ func (s *Service) CheckCode(input string) engine.CodeCheck {
 	return s.Engine.CheckCode(input, s.Now())
 }
 
-// CheckWeight проверяет, соответствует ли вес количеству (ТЗ §14.4, §14.9).
+// CheckWeight проверяет, сходятся ли между собой количество и вес: по весу одной единицы
+// видно, не перепутал ли пользователь штуки с тоннами или граммы с килограммами.
 func (s *Service) CheckWeight(code string, qty int64, weightKg float64, explicitUnit bool) (engine.UnitCheck, error) {
 	p := s.Engine.Cat.Product(code)
 	if p == nil {
@@ -113,7 +116,8 @@ func (s *Service) CheckWeight(code string, qty int64, weightKg float64, explicit
 // Расчёт
 // ---------------------------------------------------------------------------
 
-// Demo — демо-режимы ведущего (ТЗ §21: «ведущий может показать 5 нестандартных сценариев»).
+// Demo — принудительное включение нестандартных ситуаций: сбои источников и устаревшие
+// данные редко случаются сами, а показать поведение бота в них нужно.
 type Demo struct {
 	RateFail    bool    // источник курса недоступен
 	RateJumpPct float64 // курс изменился на столько % с прошлого расчёта
@@ -160,7 +164,7 @@ func (s *Service) Calculate(req CalcRequest) (*store.Calc, error) {
 	case engine.CodeOK:
 		in.Code = c.Product.Code
 	case engine.CodeReplaced:
-		in.Code, in.ReplacedFrom = c.Product.Code, c.Old.Code // ТЗ §15: расчёт по новому коду
+		in.Code, in.ReplacedFrom = c.Product.Code, c.Old.Code // считаем по новому коду, старый помним для отчёта
 	case engine.CodeNonFood:
 		return nil, &InputError{"code", texts.T("code.non_food", "code", engine.FormatCode(c.Digits), "category", c.Product.Category)}
 	case engine.CodeNotYetValid:
@@ -208,7 +212,8 @@ func (s *Service) Calculate(req CalcRequest) (*store.Calc, error) {
 	return s.Store.Put(res, report.Build(res)), nil
 }
 
-// previousRate — курс при прошлом расчёте (для предупреждения о скачке курса, ТЗ §14.5).
+// previousRate — курс на момент прошлого расчёта: по нему видно резкий скачок,
+// о котором пользователя предупреждают.
 func (s *Service) previousRate(req CalcRequest, code string, rates engine.Rates, now time.Time) *engine.PrevRate {
 	if req.Demo.RateJumpPct != 0 {
 		// Демо: делаем вид, что неделю назад курс был другим.

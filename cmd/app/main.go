@@ -29,7 +29,7 @@ func main() {
 	defer stop()
 
 	// Курс валют: учебный по умолчанию; курс ЦБ обновляется в фоне раз в час,
-	// поэтому ответ пользователю никогда не ждёт сайт ЦБ (ТЗ §21: ответ ≤ 5 секунд).
+	// поэтому ответ пользователю никогда не ждёт ответа сайта ЦБ и приходит за секунды.
 	var rates engine.RateSource = engine.TrainingSource{}
 	if cfg.RateSource == engine.SourceCBR {
 		cbr := engine.NewCBRSource()
